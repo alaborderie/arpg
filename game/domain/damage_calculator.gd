@@ -43,8 +43,10 @@ func calculate_hit(attack: AttackProfile, defense: DefenseProfile) -> DamageResu
 
 
 ## Returns the fraction of damage removed by the defender, in [0.0, 1.0].
+## `damage_type` is an [enum AttackProfile.DamageType] value (annotated as int, since
+## GDScript enums are ints, to keep this parseable independent of class load order).
 func _mitigation(
-	damage_type: AttackProfile.DamageType,
+	damage_type: int,
 	incoming: float,
 	defense: DefenseProfile
 ) -> float:
