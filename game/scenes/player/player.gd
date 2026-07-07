@@ -2,7 +2,9 @@ class_name Player
 extends CharacterBody3D
 ## The player character: navigation-driven movement, plus M2 combat — an ordered
 ## melee attack against one [Monster], own health, and death — and M3 loot: an
-## ordered pickup of one [GroundDrop], the [Inventory], and equipment.
+## ordered pickup of one [GroundDrop], the [Inventory], and equipment. M4 adds
+## [method load_state]: main.gd calls it once at boot when a save was found, to
+## restore health/position/inventory in one shot (see [SaveData], docs/0012).
 ##
 ## Equipment data flow (M3): the player keeps the raw `player.json` object as
 ## `_base_config` and recomposes `_config` through [PlayerStats] + [ItemStats]
@@ -141,6 +143,21 @@ func attack_profile() -> AttackProfile:
 
 func inventory() -> Inventory:
 	return _inventory
+
+
+## Restores health, position, bag and equipped items from a migrated save
+## envelope (M4 — see [SaveData] for the shape). Called by main once combat is
+## wired up; stats are recomposed at the end so restored gear is reflected
+## immediately, and a restored death (health <= 0) re-applies the death state.
+func load_state(save: Dictionary) -> void:
+	var player_data: Dictionary = save.get("player", {})
+	_health.current = clampi(int(player_data.get("health", _health.max_health)), 0, _health.max_health)
+	global_position = SaveData.position_from_player(save)
+	_inventory.load_state(SaveData.bag_from_player(save), SaveData.equipped_from_player(save))
+	_recompose_stats()
+	inventory_changed.emit()
+	if _health.is_dead():
+		_die()
 
 
 ## Equips the bag item at [param index] and recomposes stats. UI entry point.

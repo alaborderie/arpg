@@ -44,9 +44,11 @@ const MONSTER_SPAWNS: Array[Vector3] = [
 	Vector3(14.0, 0.0, 16.0),
 ]
 
-## Master seed for the scene's RNG streams. 0 (the default) means "randomize";
-## integration tests (and, later, M4 saves / replays) set a fixed value before the
-## scene enters the tree to make a whole run reproducible.
+## Master seed for the scene's RNG streams. 0 (the default) means "randomize, or
+## load the existing save if one is on disk" (see _ready); integration tests set
+## a fixed value before the scene enters the tree to make a whole run
+## reproducible and, in doing so, opt out of the load-at-boot check — a test that
+## wants a specific seed should never have a stray save silently override it.
 @export var rng_seed: int = 0
 
 ## One combat RNG stream and one calculator for the whole scene (ADR 0004): every
@@ -60,6 +62,12 @@ var _loot_rng: RngService
 var _loot_roller: LootRoller
 var _pending_click: Vector2 = Vector2.ZERO
 var _has_pending_click: bool = false
+## The seed this run's two RNG streams derive from; kept around so _save_game can
+## write it back out (M4).
+var _master_seed: int = 0
+## Minimal progress marker (M4): monsters killed this run. Not per-monster state —
+## a reload respawns the scene's usual monsters fresh; see docs/0012.
+var _monsters_killed: int = 0
 
 @onready var _player: Player = $Player
 @onready var _camera_rig: CameraRig = $CameraRig
@@ -67,13 +75,25 @@ var _has_pending_click: bool = false
 @onready var _monsters: Node3D = $Monsters
 @onready var _drops: Node3D = $Drops
 @onready var _inventory_panel: InventoryPanel = $InventoryPanel
+@onready var _save_button: Button = $SaveUI/SaveButton
 
 
 func _ready() -> void:
 	_orient_sun()
-	var master_seed: int = rng_seed if rng_seed != 0 else randi()
-	_rng = RngService.new(master_seed)
-	_loot_rng = RngService.new(master_seed + 1)
+	# rng_seed == 0 is both "randomize" (no save) and "not pinned by a test" — an
+	# explicit non-zero seed always wins over a save on disk (see the export doc).
+	var loaded: Dictionary = {}
+	if rng_seed == 0 and SaveStore.has_save():
+		loaded = SaveStore.load()
+	if not loaded.is_empty():
+		_master_seed = int(loaded.get("master_seed", 0))
+	else:
+		_master_seed = rng_seed if rng_seed != 0 else randi()
+	_rng = RngService.new(_master_seed)
+	_loot_rng = RngService.new(_master_seed + 1)
+	if not loaded.is_empty():
+		_rng.set_state(int(loaded.get("combat_rng_state", _rng.get_state())))
+		_loot_rng.set_state(int(loaded.get("loot_rng_state", _loot_rng.get_state())))
 	_calculator = DamageCalculator.new(_rng)
 	_loot_roller = LootRoller.new(
 		BalanceData.load_loot_tables(), BalanceData.load_items(), _loot_rng
@@ -81,12 +101,19 @@ func _ready() -> void:
 	_player.setup_combat(_calculator)
 	_inventory_panel.setup(_player)
 	_spawn_monsters()
+	if not loaded.is_empty():
+		_player.load_state(loaded)
+		var progress: Dictionary = loaded.get("progress", {})
+		_monsters_killed = int(progress.get("monsters_killed", 0))
+	_save_button.pressed.connect(_save_game)
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("move_to") and event is InputEventMouseButton:
 		_pending_click = (event as InputEventMouseButton).position
 		_has_pending_click = true
+	elif event.is_action_pressed("save_game"):
+		_save_game()
 
 
 func _physics_process(_delta: float) -> void:
@@ -147,6 +174,7 @@ func _spawn_monsters() -> void:
 ## Rolls the dead monster's loot table and drops the result where it fell. The
 ## corpse is still valid during the `died` emission (freed right after).
 func _on_monster_died(monster: Monster) -> void:
+	_monsters_killed += 1
 	var item: Dictionary = _loot_roller.roll_drop(monster.monster_id())
 	if item.is_empty():
 		return
@@ -154,6 +182,25 @@ func _on_monster_died(monster: Monster) -> void:
 	drop.position = monster.global_position
 	_drops.add_child(drop)
 	drop.setup(item)
+
+
+## Serializes the run's full state and writes it via [SaveStore] (M4). Bound to
+## both the `save_game` action (F5) and an on-screen button — the same
+## "one action, two input paths" idiom toggle_inventory already uses for touch
+## and desktop. See docs/0012 for the save-format and UX decisions.
+func _save_game() -> void:
+	var envelope: Dictionary = SaveData.build(
+		_master_seed,
+		_rng.get_state(),
+		_loot_rng.get_state(),
+		_player.current_health(),
+		_player.global_position,
+		_player.inventory().bag(),
+		_player.inventory().equipped_by_slot(),
+		_monsters_killed,
+		int(Time.get_unix_time_from_system())
+	)
+	SaveStore.save(envelope)
 
 
 ## Angles the key light so the flat-shaded geometry reads with clear light/shade.
