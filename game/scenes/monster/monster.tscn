@@ -1,0 +1,44 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scenes/monster/monster.gd" id="1_monster"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
+radius = 0.35
+height = 1.2
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_body"]
+radius = 0.35
+height = 1.2
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_body"]
+albedo_color = Color(0.63, 0.22, 0.2, 1)
+roughness = 1.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_snout"]
+size = Vector3(0.14, 0.14, 0.26)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_snout"]
+albedo_color = Color(0.25, 0.1, 0.1, 1)
+roughness = 1.0
+
+[node name="Monster" type="CharacterBody3D"]
+collision_layer = 3
+script = ExtResource("1_monster")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 0)
+shape = SubResource("CapsuleShape3D_body")
+
+[node name="Body" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.6, 0)
+mesh = SubResource("CapsuleMesh_body")
+material_override = SubResource("StandardMaterial3D_body")
+
+[node name="Snout" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, -0.38)
+mesh = SubResource("BoxMesh_snout")
+material_override = SubResource("StandardMaterial3D_snout")
+
+[node name="NavigationAgent3D" type="NavigationAgent3D" parent="."]
+path_desired_distance = 1.0
+target_desired_distance = 1.0

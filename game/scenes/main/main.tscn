@@ -12,6 +12,8 @@ script = ExtResource("1_main")
 
 [node name="Player" parent="." instance=ExtResource("3_player")]
 
+[node name="Monsters" type="Node3D" parent="."]
+
 [node name="CameraRig" parent="." instance=ExtResource("4_camera_rig")]
 target = NodePath("../Player")
 
