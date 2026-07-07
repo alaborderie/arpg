@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    name: Server (Go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: server/go.sum
+      - name: gofmt
+        run: |
+          out="$(gofmt -l .)"
+          if [ -n "$out" ]; then echo "::error::gofmt needed"; echo "$out"; exit 1; fi
+      - name: go vet
+        run: go vet ./...
+      - name: build
+        run: go build ./...
+      - name: test
+        run: go test -race ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.12.2
+          working-directory: server
+
+  data:
+    name: Shared data (JSON Schema)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: pip install check-jsonschema
+      - run: check-jsonschema --schemafile shared/schemas/monsters.schema.json shared/monsters.json
+
+  game:
+    name: Game (Godot domain tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The gdUnit4 action downloads Godot + the gdUnit4 framework and runs the
+      # headless test runner. This is the one M0 check not verified on a dev
+      # machine locally (Godot is not installed here); confirm the input names
+      # against the pinned action version if it goes red on first run.
+      - name: Run domain tests (headless)
+        uses: MikeSchulze/gdUnit4-action@v1.1.4
+        with:
+          godot-version: "4.5"
+          godot-status: "stable"
+          version: "latest"
+          project_dir: "game"
+          paths: "res://tests"
+          timeout: 10
