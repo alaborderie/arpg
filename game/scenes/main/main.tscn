@@ -1,9 +1,10 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scenes/main/main.gd" id="1_main"]
 [ext_resource type="PackedScene" path="res://scenes/world/test_map.tscn" id="2_test_map"]
 [ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="3_player"]
 [ext_resource type="PackedScene" path="res://scenes/camera/camera_rig.tscn" id="4_camera_rig"]
+[ext_resource type="PackedScene" path="res://scenes/ui/inventory_panel.tscn" id="5_inventory_panel"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
@@ -14,8 +15,12 @@ script = ExtResource("1_main")
 
 [node name="Monsters" type="Node3D" parent="."]
 
+[node name="Drops" type="Node3D" parent="."]
+
 [node name="CameraRig" parent="." instance=ExtResource("4_camera_rig")]
 target = NodePath("../Player")
 
 [node name="Sun" type="DirectionalLight3D" parent="."]
 shadow_enabled = true
+
+[node name="InventoryPanel" parent="." instance=ExtResource("5_inventory_panel")]

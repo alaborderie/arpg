@@ -1,0 +1,31 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/loot/ground_drop.gd" id="1_ground_drop"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_pick"]
+size = Vector3(0.9, 0.9, 0.9)
+
+[sub_resource type="BoxMesh" id="BoxMesh_marker"]
+size = Vector3(0.4, 0.4, 0.4)
+
+[node name="GroundDrop" type="StaticBody3D"]
+collision_layer = 4
+collision_mask = 0
+script = ExtResource("1_ground_drop")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.45, 0)
+shape = SubResource("BoxShape3D_pick")
+
+[node name="Body" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.707107, 0, -0.707107, 0, 1, 0, 0.707107, 0, 0.707107, 0, 0.35, 0)
+mesh = SubResource("BoxMesh_marker")
+
+[node name="NameLabel" type="Label3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.1, 0)
+pixel_size = 0.008
+billboard = 1
+no_depth_test = true
+text = "?"
+font_size = 48
+outline_size = 14

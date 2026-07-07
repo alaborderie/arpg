@@ -12,6 +12,10 @@ extends CharacterBody3D
 ## ~0.5 above the ground plane and the agent's waypoint-advance check is a 3D
 ## distance, so anything close to 0.5 stalls agents in place (see player.gd).
 
+## Emitted once, right before the corpse is freed. main.gd listens and rolls loot
+## (M3): position and `monster_id()` are still valid during the emission.
+signal died(monster: Monster)
+
 ## Squared direction length under which we skip rotating (avoids look_at jitter).
 const FACING_EPSILON: float = 0.0001
 
@@ -55,6 +59,11 @@ func is_dead() -> bool:
 	return _health != null and _health.is_dead()
 
 
+## This monster's `monsters.json` id — the key loot tables reference.
+func monster_id() -> String:
+	return String(_data.get("id", ""))
+
+
 func current_health() -> int:
 	return _health.current if _health != null else 0
 
@@ -72,6 +81,7 @@ func take_hit(result: DamageResult) -> void:
 	_health.take_damage(result.amount)
 	CombatFx.spawn_damage_number(get_parent(), global_position + Vector3.UP * 2.2, result)
 	if _health.is_dead():
+		died.emit(self)
 		queue_free()
 	else:
 		CombatFx.flash(_body)

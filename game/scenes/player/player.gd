@@ -1,7 +1,13 @@
 class_name Player
 extends CharacterBody3D
 ## The player character: navigation-driven movement, plus M2 combat — an ordered
-## melee attack against one [Monster], own health, and death.
+## melee attack against one [Monster], own health, and death — and M3 loot: an
+## ordered pickup of one [GroundDrop], the [Inventory], and equipment.
+##
+## Equipment data flow (M3): the player keeps the raw `player.json` object as
+## `_base_config` and recomposes `_config` through [PlayerStats] + [ItemStats]
+## whenever equipment changes. Everything downstream (attack profile, defence,
+## speeds) reads `_config`, so gear changes numbers without forking any code path.
 ##
 ## Godot notes: [CharacterBody3D] is the engine's kinematic body — it moves by
 ## `move_and_slide()` from a `velocity` we set each physics tick, rather than by
@@ -28,8 +34,19 @@ const DEFAULT_ATTACK_RANGE: float = 1.5
 const DEFAULT_ATTACK_SPEED: float = 1.0
 ## Squared direction length under which we skip rotating (avoids look_at jitter).
 const FACING_EPSILON: float = 0.0001
+## How close (metres, between origins) the player must stand to grab a drop.
+## Interaction feel, not balance — same layer as the swing-timing choice (ADR 0010).
+const PICKUP_RANGE: float = 1.8
 
+## Emitted whenever the bag or the equipped slots change (pickup, equip, unequip).
+signal inventory_changed
+
+## Effective stats: base config composed with equipped items (see _recompose_stats).
 var _config: Dictionary = {}
+## The pristine `player` object of `shared/player.json`.
+var _base_config: Dictionary = {}
+## Item base definitions from `shared/items.json`, indexed by id.
+var _item_bases_by_id: Dictionary = {}
 var _combat_constants: Dictionary = {}
 var _move_speed: float = DEFAULT_MOVE_SPEED
 var _attack_range: float = DEFAULT_ATTACK_RANGE
@@ -42,6 +59,9 @@ var _attack: AttackProfile
 var _calculator: DamageCalculator
 ## Monster this player is ordered to kill; null while just moving.
 var _attack_target: Monster
+## Drop this player is ordered to grab; null while doing anything else.
+var _pickup_target: GroundDrop
+var _inventory: Inventory = Inventory.new()
 var _dead: bool = false
 
 @onready var _agent: NavigationAgent3D = $NavigationAgent3D
@@ -49,15 +69,17 @@ var _dead: bool = false
 
 
 func _ready() -> void:
-	_config = BalanceData.load_player().get("player", {})
+	_base_config = BalanceData.load_player().get("player", {})
 	_combat_constants = BalanceData.load_combat().get("combat", {})
-	_move_speed = float(_config.get("move_speed", DEFAULT_MOVE_SPEED))
-	_attack_range = float(_config.get("attack_range", DEFAULT_ATTACK_RANGE))
-	_seconds_between_attacks = 1.0 / maxf(
-		float(_config.get("attack_speed", DEFAULT_ATTACK_SPEED)), 0.01
-	)
-	_health = Health.new(int(_config.get("max_health", DEFAULT_MAX_HEALTH)))
-	_attack = CombatProfiles.attack_from_data(_config)
+	var bases: Array = BalanceData.load_items().get("bases", [])
+	for entry: Variant in bases:
+		if entry is Dictionary:
+			var base: Dictionary = entry as Dictionary
+			_item_bases_by_id[String(base.get("id", ""))] = base
+	# Health stays on the base maximum: no health affixes exist in M3, so gear
+	# never resizes the pool mid-fight.
+	_health = Health.new(int(_base_config.get("max_health", DEFAULT_MAX_HEALTH)))
+	_recompose_stats()
 
 
 ## Injects the scene-shared [DamageCalculator]. Called by main before any combat;
@@ -74,6 +96,7 @@ func move_to(world_point: Vector3) -> void:
 	if _dead:
 		return
 	_attack_target = null
+	_pickup_target = null
 	_agent.target_position = world_point
 
 
@@ -82,7 +105,18 @@ func move_to(world_point: Vector3) -> void:
 func order_attack(target: Monster) -> void:
 	if _dead:
 		return
+	_pickup_target = null
 	_attack_target = target
+
+
+## Orders the player to pick up [param drop]: walk into PICKUP_RANGE first if
+## needed, then move the item into the inventory (bag space permitting).
+func order_pickup(drop: GroundDrop) -> void:
+	if _dead:
+		return
+	_attack_target = null
+	_pickup_target = drop
+	_agent.target_position = drop.global_position
 
 
 func is_dead() -> bool:
@@ -93,10 +127,50 @@ func current_health() -> int:
 	return _health.current if _health != null else 0
 
 
-## This player's defence against one incoming hit, built fresh from data so M3
-## equipment only has to change the underlying Dictionaries.
+## This player's defence against one incoming hit, built fresh from the composed
+## stats — equipped armour and resistances are already folded into `_config`.
 func defense_profile(incoming: AttackProfile.DamageType) -> DefenseProfile:
 	return CombatProfiles.defense_from_data(_config, incoming, _combat_constants)
+
+
+## The current outgoing-hit profile (base + equipment). Read-only access for UI
+## and tests; hits themselves are resolved in _try_attack.
+func attack_profile() -> AttackProfile:
+	return _attack
+
+
+func inventory() -> Inventory:
+	return _inventory
+
+
+## Equips the bag item at [param index] and recomposes stats. UI entry point.
+func equip_bag_index(index: int) -> void:
+	if _inventory.equip_bag_index(index):
+		_recompose_stats()
+		inventory_changed.emit()
+
+
+## Moves the item in [param slot] back to the bag and recomposes stats. UI entry point.
+func unequip_slot(slot: String) -> void:
+	if _inventory.unequip(slot):
+		_recompose_stats()
+		inventory_changed.emit()
+
+
+## Rebuilds the effective stats from base data + equipped items, and refreshes
+## everything derived from them. The one funnel through which gear acts (ADR 0011).
+func _recompose_stats() -> void:
+	var contributions: Array[Dictionary] = []
+	for item: Dictionary in _inventory.equipped_items():
+		var base: Dictionary = _item_bases_by_id.get(String(item.get("base_id", "")), {})
+		contributions.append(ItemStats.contribution(item, base))
+	_config = PlayerStats.compose(_base_config, contributions)
+	_move_speed = float(_config.get("move_speed", DEFAULT_MOVE_SPEED))
+	_attack_range = float(_config.get("attack_range", DEFAULT_ATTACK_RANGE))
+	_seconds_between_attacks = 1.0 / maxf(
+		float(_config.get("attack_speed", DEFAULT_ATTACK_SPEED)), 0.01
+	)
+	_attack = CombatProfiles.attack_from_data(_config)
 
 
 ## Applies an already-resolved hit. Feedback here, rules in the domain.
@@ -119,6 +193,7 @@ func _physics_process(delta: float) -> void:
 		return
 
 	_validate_attack_target()
+	_validate_pickup_target()
 	if _attack_target != null:
 		var to_target: Vector3 = _attack_target.global_position - global_position
 		to_target.y = 0.0
@@ -130,6 +205,15 @@ func _physics_process(delta: float) -> void:
 			return
 		# Out of range: keep closing in on the (moving) target.
 		_agent.target_position = _attack_target.global_position
+
+	if _pickup_target != null:
+		var to_drop: Vector3 = _pickup_target.global_position - global_position
+		to_drop.y = 0.0
+		if to_drop.length() <= PICKUP_RANGE:
+			_complete_pickup()
+			velocity = Vector3.ZERO
+			move_and_slide()
+			return
 
 	# Before the (runtime-baked, ADR 0009) navigation mesh is ready, and after
 	# arrival, the agent reports the path as finished — we just stand still.
@@ -152,6 +236,22 @@ func _validate_attack_target() -> void:
 		return
 	if not is_instance_valid(_attack_target) or _attack_target.is_dead():
 		_attack_target = null
+
+
+## Drops the pickup order if someone freed the drop out from under us.
+func _validate_pickup_target() -> void:
+	if _pickup_target != null and not is_instance_valid(_pickup_target):
+		_pickup_target = null
+
+
+## Grabs the ordered drop into the bag. A full bag leaves the drop on the ground
+## (and clears the order, so we don't hover over it forever).
+func _complete_pickup() -> void:
+	var drop: GroundDrop = _pickup_target
+	_pickup_target = null
+	if _inventory.add(drop.item()):
+		drop.queue_free()
+		inventory_changed.emit()
 
 
 func _face(direction: Vector3) -> void:
