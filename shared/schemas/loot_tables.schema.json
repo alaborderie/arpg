@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arpg.example/schemas/loot_tables.schema.json",
+  "title": "Loot tables and rarity model",
+  "description": "Per-monster drop tables and the global rarity weights/affix-count ranges loot rolls use. `monster_id` references shared/monsters.json ids and `base_pool` references shared/items.json base ids; cross-file integrity is asserted by the game data tests. Loaded identically by the Godot client and the Go server.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "rarities", "tables"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Bumped on any breaking change to this file's shape."
+    },
+    "rarities": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/rarity" },
+      "description": "Every rarity a roll can produce, weighted. Order is the pick order for the deterministic weighted draw, so reordering entries changes roll outcomes."
+    },
+    "tables": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/table" }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Stable snake_case identifier; never reused or renamed."
+    },
+    "rarity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "weight", "affix_count_min", "affix_count_max"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "weight": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Relative pick weight against the other rarities."
+        },
+        "affix_count_min": { "type": "integer", "minimum": 0 },
+        "affix_count_max": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Inclusive; clamped at roll time to the affixes eligible for the base's slot."
+        }
+      }
+    },
+    "table": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["monster_id", "drop_chance", "base_pool"],
+      "properties": {
+        "monster_id": {
+          "$ref": "#/$defs/id",
+          "description": "A monster id from shared/monsters.json."
+        },
+        "drop_chance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Probability that killing this monster drops one item."
+        },
+        "base_pool": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/id" },
+          "description": "Item base ids from shared/items.json this monster can drop, picked uniformly."
+        }
+      }
+    }
+  }
+}

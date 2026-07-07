@@ -54,3 +54,5 @@ validate-data: ## Validate shared/*.json against their JSON Schemas
 	check-jsonschema --schemafile shared/schemas/monsters.schema.json shared/monsters.json
 	check-jsonschema --schemafile shared/schemas/player.schema.json shared/player.json
 	check-jsonschema --schemafile shared/schemas/combat.schema.json shared/combat.json
+	check-jsonschema --schemafile shared/schemas/items.schema.json shared/items.json
+	check-jsonschema --schemafile shared/schemas/loot_tables.schema.json shared/loot_tables.json
