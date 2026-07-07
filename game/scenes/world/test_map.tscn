@@ -1,0 +1,113 @@
+[gd_scene load_steps=13 format=3]
+
+[ext_resource type="Script" path="res://scenes/world/test_map.gd" id="1_test_map"]
+
+[sub_resource type="NavigationMesh" id="NavigationMesh_map"]
+geometry_parsed_geometry_type = 1
+agent_radius = 0.5
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
+size = Vector2(40, 40)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ground"]
+albedo_color = Color(0.28, 0.34, 0.29, 1)
+roughness = 1.0
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
+size = Vector3(40, 0.5, 40)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_obstacle"]
+albedo_color = Color(0.42, 0.4, 0.38, 1)
+roughness = 1.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_wall"]
+size = Vector3(8, 2, 1)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_wall"]
+size = Vector3(8, 2, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_block"]
+size = Vector3(3, 1.5, 3)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_block"]
+size = Vector3(3, 1.5, 3)
+
+[sub_resource type="BoxMesh" id="BoxMesh_pillar"]
+size = Vector3(1.2, 3, 1.2)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_pillar"]
+size = Vector3(1.2, 3, 1.2)
+
+[node name="TestMap" type="NavigationRegion3D"]
+navigation_mesh = SubResource("NavigationMesh_map")
+script = ExtResource("1_test_map")
+
+[node name="Ground" type="StaticBody3D" parent="."]
+
+[node name="Mesh" type="MeshInstance3D" parent="Ground"]
+mesh = SubResource("PlaneMesh_ground")
+material_override = SubResource("StandardMaterial3D_ground")
+
+[node name="Collision" type="CollisionShape3D" parent="Ground"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.25, 0)
+shape = SubResource("BoxShape3D_ground")
+
+[node name="WallLong" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 1, -6)
+
+[node name="Mesh" type="MeshInstance3D" parent="WallLong"]
+mesh = SubResource("BoxMesh_wall")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="WallLong"]
+shape = SubResource("BoxShape3D_wall")
+
+[node name="WallAngled" type="StaticBody3D" parent="."]
+transform = Transform3D(0.707107, 0, -0.707107, 0, 1, 0, 0.707107, 0, 0.707107, 8, 1, 4)
+
+[node name="Mesh" type="MeshInstance3D" parent="WallAngled"]
+mesh = SubResource("BoxMesh_wall")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="WallAngled"]
+shape = SubResource("BoxShape3D_wall")
+
+[node name="BlockSquat" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9, 0.75, 9)
+
+[node name="Mesh" type="MeshInstance3D" parent="BlockSquat"]
+mesh = SubResource("BoxMesh_block")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="BlockSquat"]
+shape = SubResource("BoxShape3D_block")
+
+[node name="PillarA" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 1.5, 12)
+
+[node name="Mesh" type="MeshInstance3D" parent="PillarA"]
+mesh = SubResource("BoxMesh_pillar")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="PillarA"]
+shape = SubResource("BoxShape3D_pillar")
+
+[node name="PillarB" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6, 1.5, 12)
+
+[node name="Mesh" type="MeshInstance3D" parent="PillarB"]
+mesh = SubResource("BoxMesh_pillar")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="PillarB"]
+shape = SubResource("BoxShape3D_pillar")
+
+[node name="PillarC" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -13, 1.5, -2)
+
+[node name="Mesh" type="MeshInstance3D" parent="PillarC"]
+mesh = SubResource("BoxMesh_pillar")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="PillarC"]
+shape = SubResource("BoxShape3D_pillar")
