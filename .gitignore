@@ -1,0 +1,26 @@
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Godot 4 (official ignores) ---
+game/.godot/
+game/android/
+
+# gdUnit4 test framework is installed by CI (and locally via the AssetLib or the
+# gdUnit4 GitHub Action); it is not vendored into version control. See CLAUDE.md.
+game/addons/gdUnit4/
+
+# --- Go ---
+/server/bin/
+server/arpg-server
+*.out
+coverage.*
+
+# --- Local databases (M4+) ---
+*.db
+*.db-shm
+*.db-wal
+
+# --- Env ---
+.env
+.env.local

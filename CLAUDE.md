@@ -1,0 +1,119 @@
+# CLAUDE.md
+
+Guidance for working in this repository. Read this before making changes.
+
+## What this is
+
+A top-down action RPG (Diablo 2 / Path of Exile style), deliberately light low-poly
+flat-shaded visuals, targeting desktop (Windows/Linux/macOS) and mobile (iOS/Android).
+**Offline-first**: fully playable with no connection and local saves. Optional online
+features (cloud save sync; later server-side "AI farming") layer on top and must never
+be required to play. Not multiplayer today, but choices should not block server
+authority later.
+
+## Monorepo layout
+
+| Path       | What                                                                    |
+|------------|-------------------------------------------------------------------------|
+| `game/`    | The Godot 4.5 project (GDScript). Client.                               |
+| `server/`  | The Go backend (own `go.mod`). Optional; the game never requires it.    |
+| `shared/`  | JSON balance data + JSON Schemas — the single source of truth for rules.|
+| `docs/`    | Architecture Decision Records, one file per decision.                   |
+
+## The three rules (non-negotiable)
+
+These have ADRs; skim them before touching combat, RNG, or balance.
+
+1. **Domain/scene separation** (`docs/0003`). `game/domain/` is pure logic — plain
+   GDScript `RefCounted` classes, **no** `Node`, scene tree, input, rendering, or file
+   access. `game/scenes/` holds thin Node adapters that call into the domain and hold
+   no game rules. A `domain/` class that extends `Node` or calls `get_node()` is a bug.
+
+2. **Determinism** (`docs/0004`). All domain randomness goes through the injected
+   `RngService` (`game/domain/rng_service.gd`). Same seed + same inputs = same outcome.
+   A bare `randi()`/`randf()` in `domain/` is a bug.
+
+3. **Data-driven balance** (`docs/0005`). Monster stats, loot tables, affixes, XP
+   curves, and combat constants live in `shared/*.json`, validated by
+   `shared/schemas/*`. Both client and server load the same files. Don't hard-code
+   balance numbers in GDScript or Go — inject them from data.
+
+## How to run things
+
+Prerequisites: **Go 1.26+**; **Godot 4.5+** for the game; `golangci-lint` and
+`check-jsonschema` for the full check suite. All `make` targets run from the repo root
+(`make help` lists them).
+
+### The game
+
+Open `game/` in the Godot editor and press Play, or headless:
+
+```sh
+godot --path game                 # run the boot scene
+godot --headless --path game      # import/boot with no window (used by CI)
+```
+
+The M0 boot scene (`game/scenes/main/main.tscn`) is an empty 3D ground plane under an
+isometric-angle orthographic camera — enough to confirm the project renders.
+
+### Tests (headless)
+
+```sh
+make test-server   # Go: go test -race ./...
+make test-game     # Godot domain tests via gdUnit4, headless
+make test          # both
+make check         # everything CI runs: data validation, lint, both test suites
+```
+
+`make test-game` needs Godot + the **gdUnit4** addon installed locally (Godot AssetLib;
+the addon is git-ignored, not vendored — see `docs/0007`). It runs:
+
+```sh
+godot --headless --path game -s res://addons/gdUnit4/bin/GdUnitCmdTool.gd -a res://tests
+```
+
+CI runs the game tests via the gdUnit4 GitHub Action instead (it fetches Godot + the
+framework). CI is the source of truth for game-side green.
+
+### The server
+
+```sh
+make run-server                    # listens on :8080 (ARPG_ADDR to override)
+curl localhost:8080/health         # {"status":"ok","service":"arpg-server"}
+make lint-server                   # gofmt check + go vet + golangci-lint
+```
+
+### Shared data
+
+```sh
+make validate-data   # validates shared/*.json against shared/schemas/*
+```
+
+## Conventions
+
+- **GDScript**: typed everywhere — typed vars (`var x: int`), typed function
+  signatures and returns. Tabs for indentation (Godot standard). Prefer boring,
+  idiomatic Godot over clever tricks.
+- **Go**: `gofmt`-clean, `go vet`- and `golangci-lint`-clean, table-driven tests.
+  Structured logging with `slog`. `internal/` for non-exported packages.
+- **Data**: every `shared/*.json` has a `schema_version` and a schema in
+  `shared/schemas/`. Bump `schema_version` on breaking shape changes.
+- **Saves** (from M4): versioned, self-contained JSON with an explicit
+  `schema_version` and a migration path; cloud sync ships these blobs as-is.
+- **Server boundaries**: the server never trusts the client for anything of economic
+  value once online features exist. Structure routes/services so real auth (M5) and
+  the AI-agent runner (M6) slot in without rework.
+- **Commits**: small, one concern each, clear messages.
+- **ADRs**: when you make a non-obvious technical choice, add `docs/NNNN-title.md`.
+
+## Milestones
+
+- **M0 — Scaffold — DONE.** Repo structure, Godot project booting to an isometric 3D
+  scene, `/health` server, `DamageCalculator` domain class + gdUnit4 tests,
+  `shared/monsters.json` + schema, CI.
+- **M1** — click/tap-to-move on a flat map with obstacles (NavigationServer), camera follow.
+- **M2** — one attack, one melee monster (chase/attack AI), health/death/hit feedback; numbers from domain + JSON.
+- **M3** — loot rolls from `shared/loot_tables.json`, ground drops, pickup, grid inventory, equipping affects stats.
+- **M4** — versioned local save/load.
+- **M5** — device auth stub + cloud save sync; client fully functional when server is unreachable.
+- **M6** — AI-farming groundwork: LLM tool-call schema + deterministic server-side map-run resolver reusing `shared/` data (LLM stubbed).
