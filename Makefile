@@ -22,8 +22,10 @@ test: test-server test-game ## Run all unit tests
 test-game: ## Run domain unit tests headless via gdUnit4
 	# Requires Godot + the gdUnit4 addon installed locally (see CLAUDE.md).
 	# CI runs the equivalent via the gdUnit4 GitHub Action.
+	# --ignoreHeadlessMode: gdUnit4 refuses plain headless runs because InputEvent-
+	# driven UI tests can't work there; our tests are pure domain/data, so it's safe.
 	$(GODOT) --headless --path $(GAME_DIR) \
-	  -s res://addons/gdUnit4/bin/GdUnitCmdTool.gd -a res://tests
+	  -s res://addons/gdUnit4/bin/GdUnitCmdTool.gd -a res://tests --ignoreHeadlessMode
 
 ## --- Server (Go) ----------------------------------------------------------
 
