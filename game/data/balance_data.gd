@@ -13,6 +13,8 @@ extends RefCounted
 const PLAYER_PATH: String = "res://shared/player.json"
 const MONSTERS_PATH: String = "res://shared/monsters.json"
 const COMBAT_PATH: String = "res://shared/combat.json"
+const ITEMS_PATH: String = "res://shared/items.json"
+const LOOT_TABLES_PATH: String = "res://shared/loot_tables.json"
 
 
 ## Returns the parsed `player.json` document, e.g. `{schema_version, player: {...}}`.
@@ -28,6 +30,16 @@ static func load_monsters() -> Dictionary:
 ## Returns the parsed `combat.json` document, e.g. `{schema_version, combat: {...}}`.
 static func load_combat() -> Dictionary:
 	return _load_json_object(COMBAT_PATH)
+
+
+## Returns the parsed `items.json` document, e.g. `{schema_version, bases: [...], affixes: [...]}`.
+static func load_items() -> Dictionary:
+	return _load_json_object(ITEMS_PATH)
+
+
+## Returns the parsed `loot_tables.json` document, e.g. `{schema_version, rarities: [...], tables: [...]}`.
+static func load_loot_tables() -> Dictionary:
+	return _load_json_object(LOOT_TABLES_PATH)
 
 
 ## Returns the `monsters.json` entry whose `id` is [param monster_id], or an empty

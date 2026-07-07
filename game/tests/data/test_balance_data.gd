@@ -43,3 +43,61 @@ func test_monster_lookup_by_id_finds_the_m2_monster() -> void:
 	assert_bool(imp.is_empty()).is_false()
 	assert_str(String(imp.get("ai", ""))).is_equal("melee_chaser")
 	assert_int(int(imp.get("max_health", 0))).is_greater(0)
+
+
+func test_items_config_loads() -> void:
+	var doc: Dictionary = BalanceData.load_items()
+	assert_bool(doc.is_empty()).is_false()
+	var bases: Array = doc.get("bases", [])
+	var affixes: Array = doc.get("affixes", [])
+	assert_int(bases.size()).is_greater_equal(1)
+	assert_int(affixes.size()).is_greater_equal(1)
+
+
+func test_loot_tables_config_loads() -> void:
+	var doc: Dictionary = BalanceData.load_loot_tables()
+	assert_bool(doc.is_empty()).is_false()
+	var rarities: Array = doc.get("rarities", [])
+	var tables: Array = doc.get("tables", [])
+	assert_int(rarities.size()).is_greater_equal(1)
+	assert_int(tables.size()).is_greater_equal(1)
+
+
+func test_loot_tables_reference_only_known_monsters_and_bases() -> void:
+	# Cross-file referential integrity the JSON Schemas cannot express: every
+	# `monster_id` must exist in monsters.json, every `base_pool` id in items.json.
+	var monster_ids: Array[String] = []
+	var monsters: Array = BalanceData.load_monsters().get("monsters", [])
+	for entry: Variant in monsters:
+		monster_ids.append(String((entry as Dictionary).get("id", "")))
+	var base_ids: Array[String] = []
+	var bases: Array = BalanceData.load_items().get("bases", [])
+	for entry: Variant in bases:
+		base_ids.append(String((entry as Dictionary).get("id", "")))
+
+	var tables: Array = BalanceData.load_loot_tables().get("tables", [])
+	for entry: Variant in tables:
+		var table: Dictionary = entry as Dictionary
+		assert_array(monster_ids).contains([String(table.get("monster_id", ""))])
+		var pool: Array = table.get("base_pool", [])
+		for pooled: Variant in pool:
+			assert_array(base_ids).contains([String(pooled)])
+
+
+func test_every_monster_has_a_loot_table() -> void:
+	# Not a hard rule forever, but with two monsters both should drop; a missing
+	# table is far more likely a typo than a design choice today.
+	var table_ids: Array[String] = []
+	var tables: Array = BalanceData.load_loot_tables().get("tables", [])
+	for entry: Variant in tables:
+		table_ids.append(String((entry as Dictionary).get("monster_id", "")))
+	var monsters: Array = BalanceData.load_monsters().get("monsters", [])
+	for entry: Variant in monsters:
+		assert_array(table_ids).contains([String((entry as Dictionary).get("id", ""))])
+
+
+func test_affix_ranges_are_ordered() -> void:
+	var affixes: Array = BalanceData.load_items().get("affixes", [])
+	for entry: Variant in affixes:
+		var affix: Dictionary = entry as Dictionary
+		assert_int(int(affix.get("max", -1))).is_greater_equal(int(affix.get("min", 0)))
