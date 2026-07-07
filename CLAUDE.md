@@ -53,8 +53,20 @@ godot --path game                 # run the boot scene
 godot --headless --path game      # import/boot with no window (used by CI)
 ```
 
-The M0 boot scene (`game/scenes/main/main.tscn`) is an empty 3D ground plane under an
-isometric-angle orthographic camera — enough to confirm the project renders.
+The main scene (`game/scenes/main/main.tscn`) is a flat test map with box obstacles
+under an isometric-angle orthographic camera. **Click (or tap) the ground to walk
+there** — pathing goes through the NavigationServer around the obstacles, and the
+camera follows. Touch input rides the engine's mouse-from-touch emulation, so the
+same input path serves desktop and mobile.
+
+Two Godot-side details worth knowing before editing scenes:
+
+- `game/shared` is a **symlink** to the repo-root `shared/` (ADR 0008); scripts read
+  balance data as `res://shared/*.json` through `game/data/balance_data.gd`.
+- Navigation meshes bake **at runtime** from static colliders, synchronously plus a
+  `map_force_update` (ADR 0009) — never commit baked polygons into a `.tscn`, and
+  block movement by adding a `StaticBody3D` + collision shape under the map's
+  `NavigationRegion3D`.
 
 ### Tests (headless)
 
@@ -69,8 +81,12 @@ make check         # everything CI runs: data validation, lint, both test suites
 the addon is git-ignored, not vendored — see `docs/0007`). It runs:
 
 ```sh
-godot --headless --path game -s res://addons/gdUnit4/bin/GdUnitCmdTool.gd -a res://tests
+godot --headless --path game -s res://addons/gdUnit4/bin/GdUnitCmdTool.gd -a res://tests --ignoreHeadlessMode
 ```
+
+`game/tests/` splits by kind: `domain/` (pure logic), `data/` (shared-data loading),
+and `scenes/` (gdUnit scene-runner integration tests that drive the real engine loop —
+navigation and physics work headless).
 
 CI runs the game tests via the gdUnit4 GitHub Action instead (it fetches Godot + the
 framework). CI is the source of truth for game-side green.
@@ -111,7 +127,9 @@ make validate-data   # validates shared/*.json against shared/schemas/*
 - **M0 — Scaffold — DONE.** Repo structure, Godot project booting to an isometric 3D
   scene, `/health` server, `DamageCalculator` domain class + gdUnit4 tests,
   `shared/monsters.json` + schema, CI.
-- **M1** — click/tap-to-move on a flat map with obstacles (NavigationServer), camera follow.
+- **M1 — Movement — DONE.** Click/tap-to-move on a flat map with obstacles
+  (NavigationServer), camera follow, one input path for mouse and touch,
+  `shared/player.json` feeding move speed, scene-runner integration tests.
 - **M2** — one attack, one melee monster (chase/attack AI), health/death/hit feedback; numbers from domain + JSON.
 - **M3** — loot rolls from `shared/loot_tables.json`, ground drops, pickup, grid inventory, equipping affects stats.
 - **M4** — versioned local save/load.
