@@ -24,3 +24,6 @@ coverage.*
 # --- Env ---
 .env
 .env.local
+
+# gdUnit4 local test reports
+game/reports/
