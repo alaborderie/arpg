@@ -86,3 +86,19 @@ func equipped_items() -> Array[Dictionary]:
 	for slot: Variant in slots:
 		items.append(_equipped.get(slot, {}) as Dictionary)
 	return items
+
+
+## The raw slot -> item Dictionary. [method equipped_items] is for gameplay (a
+## sorted list, stat composition reads it in stable order); this is the actual
+## storage shape a save (M4) needs to round-trip exactly, including which slot
+## each item sits in.
+func equipped_by_slot() -> Dictionary:
+	return _equipped.duplicate()
+
+
+## Replaces bag and equipped state wholesale (M4 load). No swap semantics here —
+## a save already captured a consistent bag/equipped split, so the loader has
+## nothing to reconcile against transient state the way equip/unequip do.
+func load_state(bag_state: Array[Dictionary], equipped_state: Dictionary) -> void:
+	_bag = bag_state.duplicate()
+	_equipped = equipped_state.duplicate()
