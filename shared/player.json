@@ -1,6 +1,13 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "player": {
-    "move_speed": 6.0
+    "move_speed": 6.0,
+    "max_health": 100,
+    "armor": 0,
+    "damage": { "type": "physical", "base_min": 4, "base_max": 7 },
+    "crit_chance": 0.05,
+    "crit_multiplier": 1.5,
+    "attack_speed": 1.5,
+    "attack_range": 1.8
   }
 }

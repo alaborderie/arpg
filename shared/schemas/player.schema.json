@@ -15,12 +15,39 @@
     "player": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["move_speed"],
+      "required": [
+        "move_speed", "max_health", "armor", "damage",
+        "crit_chance", "crit_multiplier", "attack_speed", "attack_range"
+      ],
       "properties": {
         "move_speed": {
           "type": "number",
           "exclusiveMinimum": 0,
           "description": "Base movement speed in world units (metres) per second."
+        },
+        "max_health": { "type": "integer", "minimum": 1 },
+        "armor": { "type": "integer", "minimum": 0 },
+        "damage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "base_min", "base_max"],
+          "properties": {
+            "type": { "enum": ["physical", "fire", "cold", "lightning"] },
+            "base_min": { "type": "integer", "minimum": 0 },
+            "base_max": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "crit_chance": { "type": "number", "minimum": 0, "maximum": 1 },
+        "crit_multiplier": { "type": "number", "minimum": 1 },
+        "attack_speed": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Attacks per second."
+        },
+        "attack_range": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Maximum distance (metres, between body origins) at which an attack connects."
         }
       }
     }

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arpg.example/schemas/combat.schema.json",
+  "title": "Global combat constants",
+  "description": "Tunables of the damage-mitigation formulas themselves (not of any one entity). Loaded identically by the Godot client and the Go server, so it is the single source of truth for these numbers. See docs/0005-data-driven-balance.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "combat"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Bumped on any breaking change to this file's shape."
+    },
+    "combat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["armor_constant", "max_physical_reduction", "max_resistance"],
+      "properties": {
+        "armor_constant": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "The K in the armour formula `armor / (armor + K * hit)`. Higher K makes armour weaker."
+        },
+        "max_physical_reduction": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Hard cap on physical damage reduction, as a fraction."
+        },
+        "max_resistance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Hard cap on elemental resistance, as a fraction."
+        }
+      }
+    }
+  }
+}

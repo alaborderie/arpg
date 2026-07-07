@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "combat": {
+    "armor_constant": 10.0,
+    "max_physical_reduction": 0.9,
+    "max_resistance": 0.75
+  }
+}
