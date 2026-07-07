@@ -1,0 +1,14 @@
+# golangci-lint v2 configuration.
+# The default linter set already covers errcheck, govet, ineffassign, staticcheck
+# and unused; we add a couple of style/correctness linters on top, and enable the
+# gofmt formatter so `golangci-lint fmt` matches CI's gofmt check.
+version: "2"
+
+linters:
+  enable:
+    - misspell
+    - revive
+
+formatters:
+  enable:
+    - gofmt
