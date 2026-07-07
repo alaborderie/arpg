@@ -138,7 +138,20 @@ make validate-data   # validates shared/*.json against shared/schemas/*
   Targeting/wiring choices in `docs/0010`: monster picking raycasts physics layer 2
   on the next physics tick; `main.gd` owns the scene's single RngService/
   DamageCalculator and injects them everywhere.
-- **M3** — loot rolls from `shared/loot_tables.json`, ground drops, pickup, grid inventory, equipping affects stats.
+- **M3 — Loot & inventory — DONE.** Killing a monster rolls its `shared/loot_tables.json`
+  entry (`LootRoller`: drop chance, base pick, weighted rarity, affix count/picks —
+  fixed draw order, own RNG stream seeded `master_seed + 1` so drops depend only on
+  kill order, not on combat-roll consumption) and spawns a `GroundDrop` (physics layer
+  3, picked by the same one-ray/additive-mask pattern as monsters). Click (or the
+  player's ordered pickup) walks into range and bags the item via `Inventory` (bag +
+  equipped-slot Dictionary, swap-equip semantics). Equipping recomposes the player's
+  effective stats through `PlayerStats.compose` + `ItemStats.contribution` into the
+  same Dictionary shape `CombatProfiles` already consumed (ADR 0010) — gear changes
+  numbers, never the pipeline. `InventoryPanel` (toggle key `I`, or a touch button) is
+  a dumb view over `Player.inventory()`, redrawn on `inventory_changed`. Data:
+  `shared/items.json` (bases + affix pool), `shared/loot_tables.json` (rarities +
+  per-monster tables). Design choices — rolled-item shape, two RNG streams, the stat
+  composition rules — in `docs/0011`.
 - **M4** — versioned local save/load.
 - **M5** — device auth stub + cloud save sync; client fully functional when server is unreachable.
 - **M6** — AI-farming groundwork: LLM tool-call schema + deterministic server-side map-run resolver reusing `shared/` data (LLM stubbed).
