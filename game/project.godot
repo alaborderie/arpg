@@ -1,0 +1,30 @@
+; Godot project configuration.
+;
+; Renderer: Forward Mobile (see docs/0002-godot-renderer-forward-mobile.md).
+; The `mobile` rendering method is Godot's Vulkan/Metal pipeline tuned for phones;
+; it gives us decent dynamic lighting/shadows for the flat-shaded low-poly look
+; while staying lighter than the desktop-oriented Forward+ path.
+;
+; Engine-managed file. Most values are edited through the Godot editor UI, but the
+; project boots headlessly from this file too (that is how CI runs the tests).
+
+config_version=5
+
+[application]
+
+config/name="ARPG (working title)"
+config/description="Top-down action RPG. Offline-first, low-poly flat-shaded."
+run/main_scene="res://scenes/main/main.tscn"
+config/features=PackedStringArray("4.5", "Forward Mobile")
+config/icon="res://icon.svg"
+
+[debug]
+
+gdscript/warnings/untyped_declaration=1
+gdscript/warnings/unsafe_property_access=1
+gdscript/warnings/unsafe_method_access=1
+
+[rendering]
+
+renderer/rendering_method="mobile"
+renderer/rendering_method.mobile="mobile"
