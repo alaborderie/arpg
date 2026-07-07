@@ -12,6 +12,7 @@ extends RefCounted
 
 const PLAYER_PATH: String = "res://shared/player.json"
 const MONSTERS_PATH: String = "res://shared/monsters.json"
+const COMBAT_PATH: String = "res://shared/combat.json"
 
 
 ## Returns the parsed `player.json` document, e.g. `{schema_version, player: {...}}`.
@@ -22,6 +23,22 @@ static func load_player() -> Dictionary:
 ## Returns the parsed `monsters.json` document, e.g. `{schema_version, monsters: [...]}`.
 static func load_monsters() -> Dictionary:
 	return _load_json_object(MONSTERS_PATH)
+
+
+## Returns the parsed `combat.json` document, e.g. `{schema_version, combat: {...}}`.
+static func load_combat() -> Dictionary:
+	return _load_json_object(COMBAT_PATH)
+
+
+## Returns the `monsters.json` entry whose `id` is [param monster_id], or an empty
+## Dictionary (after logging) if no such monster exists.
+static func monster(monster_id: String) -> Dictionary:
+	var monsters: Array = load_monsters().get("monsters", [])
+	for entry: Variant in monsters:
+		if entry is Dictionary and String((entry as Dictionary).get("id", "")) == monster_id:
+			return entry as Dictionary
+	push_error("BalanceData: no monster with id '%s' in %s" % [monster_id, MONSTERS_PATH])
+	return {}
 
 
 static func _load_json_object(path: String) -> Dictionary:
