@@ -1,0 +1,17 @@
+# sqlc configuration. Runs `sqlc generate` to turn the plain SQL in db/queries
+# into type-safe Go. Wired into the build in M4/M5 (persistence + cloud sync).
+#
+# SQLite now; the SQL is kept portable (see db/README.md) so switching the engine
+# to postgresql later is a config change plus a migration review, not a rewrite.
+version: "2"
+sql:
+  - engine: "sqlite"
+    queries: "db/queries"
+    schema: "db/migrations"
+    gen:
+      go:
+        package: "sqlcgen"
+        out: "internal/store/sqlcgen"
+        emit_json_tags: true
+        emit_interface: true
+        emit_empty_slices: true
