@@ -130,7 +130,14 @@ make validate-data   # validates shared/*.json against shared/schemas/*
 - **M1 — Movement — DONE.** Click/tap-to-move on a flat map with obstacles
   (NavigationServer), camera follow, one input path for mouse and touch,
   `shared/player.json` feeding move speed, scene-runner integration tests.
-- **M2** — one attack, one melee monster (chase/attack AI), health/death/hit feedback; numbers from domain + JSON.
+- **M2 — Combat — DONE.** Click a monster to attack it (walking into range first),
+  ground to move. One melee monster (`fallen_imp`, chase/attack AI), health, death
+  and hit feedback (Label3D damage numbers + material flash) on both sides. Domain:
+  `Health`, `CombatProfiles` (profiles from data Dictionaries). Data: player attack
+  stats in `shared/player.json`, mitigation constants in `shared/combat.json`.
+  Targeting/wiring choices in `docs/0010`: monster picking raycasts physics layer 2
+  on the next physics tick; `main.gd` owns the scene's single RngService/
+  DamageCalculator and injects them everywhere.
 - **M3** — loot rolls from `shared/loot_tables.json`, ground drops, pickup, grid inventory, equipping affects stats.
 - **M4** — versioned local save/load.
 - **M5** — device auth stub + cloud save sync; client fully functional when server is unreachable.
