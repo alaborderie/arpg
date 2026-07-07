@@ -38,7 +38,9 @@ func calculate_hit(attack: AttackProfile, defense: DefenseProfile) -> DamageResu
 	var mitigation: float = _mitigation(attack.damage_type, after_crit, defense)
 	var mitigated: float = after_crit * (1.0 - mitigation)
 
-	var amount: int = maxi(1, int(floor(mitigated)))
+	# The epsilon guards against float noise: 100 * (1.0 - 0.90) is 9.999...98 in
+	# IEEE754 and must floor to 10, not 9.
+	var amount: int = maxi(1, int(floor(mitigated + 0.00001)))
 	return DamageResult.new(amount, is_crit, mitigation)
 
 
