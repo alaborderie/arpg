@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "monsters": [
+    {
+      "id": "fallen_imp",
+      "name": "Fallen Imp",
+      "level": 1,
+      "max_health": 24,
+      "armor": 4,
+      "resistances": { "fire": 0, "cold": 0, "lightning": 0 },
+      "damage": { "type": "physical", "base_min": 2, "base_max": 4 },
+      "crit_chance": 0.05,
+      "crit_multiplier": 1.5,
+      "move_speed": 3.2,
+      "attack_speed": 1.0,
+      "attack_range": 1.5,
+      "xp_reward": 5,
+      "ai": "melee_chaser"
+    },
+    {
+      "id": "cinder_wraith",
+      "name": "Cinder Wraith",
+      "level": 3,
+      "max_health": 48,
+      "armor": 2,
+      "resistances": { "fire": 40, "cold": -20, "lightning": 0 },
+      "damage": { "type": "fire", "base_min": 5, "base_max": 9 },
+      "crit_chance": 0.08,
+      "crit_multiplier": 1.5,
+      "move_speed": 2.6,
+      "attack_speed": 0.8,
+      "attack_range": 2.0,
+      "xp_reward": 14,
+      "ai": "melee_chaser"
+    }
+  ]
+}

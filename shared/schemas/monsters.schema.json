@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arpg.example/schemas/monsters.schema.json",
+  "title": "Monster definitions",
+  "description": "Balance data for monsters. Loaded identically by the Godot client and the Go server, so it is the single source of truth for these numbers.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "monsters"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Bumped on any breaking change to this file's shape."
+    },
+    "monsters": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/monster" }
+    }
+  },
+  "$defs": {
+    "monster": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "name", "level", "max_health", "armor", "resistances",
+        "damage", "crit_chance", "crit_multiplier", "move_speed",
+        "attack_speed", "attack_range", "xp_reward", "ai"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "Stable snake_case identifier; never reused or renamed."
+        },
+        "name": { "type": "string", "minLength": 1 },
+        "level": { "type": "integer", "minimum": 1 },
+        "max_health": { "type": "integer", "minimum": 1 },
+        "armor": { "type": "integer", "minimum": 0 },
+        "resistances": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["fire", "cold", "lightning"],
+          "properties": {
+            "fire": { "$ref": "#/$defs/resistance" },
+            "cold": { "$ref": "#/$defs/resistance" },
+            "lightning": { "$ref": "#/$defs/resistance" }
+          }
+        },
+        "damage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "base_min", "base_max"],
+          "properties": {
+            "type": { "enum": ["physical", "fire", "cold", "lightning"] },
+            "base_min": { "type": "integer", "minimum": 0 },
+            "base_max": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "crit_chance": { "type": "number", "minimum": 0, "maximum": 1 },
+        "crit_multiplier": { "type": "number", "minimum": 1 },
+        "move_speed": { "type": "number", "minimum": 0 },
+        "attack_speed": { "type": "number", "minimum": 0 },
+        "attack_range": { "type": "number", "minimum": 0 },
+        "xp_reward": { "type": "integer", "minimum": 0 },
+        "ai": { "enum": ["melee_chaser", "ranged_kite", "stationary_caster"] }
+      }
+    },
+    "resistance": {
+      "type": "integer",
+      "minimum": -100,
+      "maximum": 100,
+      "description": "Percent. Negative means extra vulnerability."
+    }
+  }
+}
