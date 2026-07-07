@@ -152,6 +152,23 @@ make validate-data   # validates shared/*.json against shared/schemas/*
   `shared/items.json` (bases + affix pool), `shared/loot_tables.json` (rarities +
   per-monster tables). Design choices — rolled-item shape, two RNG streams, the stat
   composition rules — in `docs/0011`.
-- **M4** — versioned local save/load.
+- **M4 — Persistence — DONE.** One versioned JSON save envelope (`schema_version`,
+  `saved_at_unix`, `master_seed`, both RNG stream states, player health/position,
+  `Inventory` bag/equipped, a `monsters_killed` progress counter). Domain:
+  `SaveData` (`game/domain/save_data.gd`) shapes/migrates the envelope — pure
+  Dictionary in/out, no file access — with a step-by-step `_migrate_v<N>_to_v<N+1>`
+  chain (a scaffolded v0→v1 step proves the mechanism), rejecting a save from a
+  newer `schema_version` outright. RNG state is stored as a decimal string, not a
+  JSON number, because `RandomNumberGenerator.state` is a full 64-bit value and
+  Godot's JSON number type is a 53-bit-precision double — a bare-number round trip
+  silently truncates it. Adapter: `SaveStore` (`game/data/save_store.gd`) reads/
+  writes `user://saves/save.json` via `FileAccess`, following the same
+  empty-Dictionary-plus-`push_error` convention as `BalanceData`. To reset a save,
+  delete that file (or call `SaveStore.delete()`); the game boots a fresh run if
+  it's absent. UX: the `save_game` action (F5) and an on-screen "Save (F5)" button
+  (same one-action/two-input-paths idiom as `toggle_inventory`) both save; loading
+  happens automatically at boot when a save exists and `rng_seed` wasn't pinned
+  (so seeded tests are never overridden by a stray save). Design rationale,
+  envelope shape and the RNG-string bug in `docs/0012`.
 - **M5** — device auth stub + cloud save sync; client fully functional when server is unreachable.
 - **M6** — AI-farming groundwork: LLM tool-call schema + deterministic server-side map-run resolver reusing `shared/` data (LLM stubbed).
