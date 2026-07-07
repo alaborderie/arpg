@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "player": {
+    "move_speed": 6.0
+  }
+}

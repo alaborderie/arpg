@@ -50,3 +50,4 @@ tidy-server: ## Tidy and verify go.mod/go.sum
 
 validate-data: ## Validate shared/*.json against their JSON Schemas
 	check-jsonschema --schemafile shared/schemas/monsters.schema.json shared/monsters.json
+	check-jsonschema --schemafile shared/schemas/player.schema.json shared/player.json

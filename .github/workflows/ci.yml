@@ -46,6 +46,7 @@ jobs:
           python-version: "3.x"
       - run: pip install check-jsonschema
       - run: check-jsonschema --schemafile shared/schemas/monsters.schema.json shared/monsters.json
+      - run: check-jsonschema --schemafile shared/schemas/player.schema.json shared/player.json
 
   game:
     name: Game (Godot domain tests)

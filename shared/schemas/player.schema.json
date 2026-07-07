@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arpg.example/schemas/player.schema.json",
+  "title": "Player base configuration",
+  "description": "Baseline (unmodified by gear or passives) player parameters. Loaded identically by the Godot client and the Go server, so it is the single source of truth for these numbers.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "player"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Bumped on any breaking change to this file's shape."
+    },
+    "player": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["move_speed"],
+      "properties": {
+        "move_speed": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Base movement speed in world units (metres) per second."
+        }
+      }
+    }
+  }
+}
