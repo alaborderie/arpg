@@ -17,6 +17,10 @@ const DESTINATION: Vector3 = Vector3(5.0, 0.0, -5.0)
 const OBSTACLE_CENTRE: Vector3 = Vector3(-9.0, 0.0, 9.0)
 ## Frames to simulate: generous for the distances involved at move_speed 6, 60 Hz.
 const MAX_FRAMES: int = 400
+## Frames simulated per polling step while waiting for the player to settle.
+const STEP_FRAMES: int = 20
+## Position change per step under which the player counts as settled (arrived).
+const SETTLE_EPSILON: float = 0.05
 
 
 func test_player_walks_to_ordered_destination() -> void:
@@ -27,7 +31,7 @@ func test_player_walks_to_ordered_destination() -> void:
 
 	var start: Vector3 = player.global_position
 	player.move_to(DESTINATION)
-	await runner.simulate_frames(MAX_FRAMES)
+	await _simulate_until_settled(runner, player, start)
 
 	var travelled: float = player.global_position.distance_to(start)
 	var remaining: Vector3 = player.global_position - DESTINATION
@@ -44,11 +48,30 @@ func test_order_into_obstacle_resolves_to_nearby_reachable_point() -> void:
 
 	# The agent clamps the unreachable target to the closest point on the navmesh,
 	# so the player should end up next to the block — never inside it, no crash.
+	var start: Vector3 = player.global_position
 	player.move_to(OBSTACLE_CENTRE)
-	await runner.simulate_frames(MAX_FRAMES)
+	await _simulate_until_settled(runner, player, start)
 
 	var offset: Vector3 = player.global_position - OBSTACLE_CENTRE
 	offset.y = 0.0
 	# Block half-extent is 1.5; anything below that would be inside the box.
 	assert_float(offset.length()).is_greater(1.2)
 	assert_float(offset.length()).is_less(5.0)
+
+
+## Simulates frames until the player stops moving (arrived), or MAX_FRAMES pass.
+## Asserting right at arrival keeps this suite about *movement*: since M2 the map
+## also holds chasing monsters, and given enough frames they reach the player and
+## jostle it around — that interference is the combat suite's business, not ours.
+func _simulate_until_settled(
+	runner: GdUnitSceneRunner, player: Player, start: Vector3
+) -> void:
+	var frames: int = 0
+	var previous: Vector3 = player.global_position
+	while frames < MAX_FRAMES:
+		await runner.simulate_frames(STEP_FRAMES)
+		frames += STEP_FRAMES
+		var now: Vector3 = player.global_position
+		if now.distance_to(previous) < SETTLE_EPSILON and now.distance_to(start) > 0.5:
+			return
+		previous = now
