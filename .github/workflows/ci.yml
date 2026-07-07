@@ -31,7 +31,7 @@ jobs:
       - name: test
         run: go test -race ./...
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
           working-directory: server
@@ -53,11 +53,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # The gdUnit4 action downloads Godot + the gdUnit4 framework and runs the
-      # headless test runner. This is the one M0 check not verified on a dev
-      # machine locally (Godot is not installed here); confirm the input names
-      # against the pinned action version if it goes red on first run.
+      # headless test runner. Report publishing is off: it needs checks:write,
+      # and this workflow deliberately runs with contents:read only.
       - name: Run domain tests (headless)
-        uses: MikeSchulze/gdUnit4-action@v1.1.4
+        uses: MikeSchulze/gdUnit4-action@v1.3.2
         with:
           godot-version: "4.5"
           godot-status: "stable"
@@ -65,3 +64,4 @@ jobs:
           project_dir: "game"
           paths: "res://tests"
           timeout: 10
+          publish-report: false
