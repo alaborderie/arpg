@@ -273,3 +273,19 @@ make validate-data   # validates shared/*.json against shared/schemas/*
   persisted (future work). Design, approximations and what a real
   LLM-backed runner needs next (API key config, model choice, its own
   loop-guard, run persistence) in `docs/0014`.
+
+## Gameplay phase (G-tickets)
+
+- **G1 — Larger map, centered camera, infinite spawning — DONE.** Map is
+  200x200 (synchronous bake measured ~0.2 s at the default navmesh cell size —
+  under budget, precision unchanged; re-measure if maps grow again). Camera is
+  hard-locked to the player (no smoothing lag; ortho size 24). `MonsterSpawner`
+  (`game/scenes/world/monster_spawner.gd`) keeps ~10 monsters alive in a
+  14–30 m navmesh-snapped ring around the player, picks ids from a **third**
+  RNG stream (`master_seed + 2`, deliberately not in the save envelope), and
+  despawns ground drops beyond 45 m; monster death → loot flow in `main.gd` is
+  unchanged. Scene tests pin the spawner via its exports (`target_population`,
+  `forced_monster_id`) set before the scene enters the tree — population 0 for
+  a quiet map, 1 + `"fallen_imp"` to preserve swept-seed kill sequences. Any
+  new scene test booting `main.tscn` must do the same or expect 10 chasers.
+  Design in `docs/0015`.
