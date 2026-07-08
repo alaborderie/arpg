@@ -20,13 +20,14 @@ extends CharacterBody3D
 ## G6 adds [method cast_at]: main.gd's Q handler calls it with the mouse's
 ## ground-plane point, and it casts the *equipped* skill from wherever the
 ## player currently stands — no walk-into-range, no target lock. It shares the
-## cooldown (`_attack_cooldown`/`_seconds_between_attacks`) and the
+## per-slot cooldown (`_slot_cooldowns`/`_slot_seconds_between_attacks`, G9
+## generalizes these from single fields into arrays — see below) and the
 ## damage-resolution core ([method _resolve_hit_on]) with the click-order path
 ## in [method _try_attack]; only *how a victim is found* differs (a locked
 ## target there, an aim direction here). Ranged fires a [Projectile] in its new
 ## directional mode (constant velocity, no target, hits the first monster it
 ## passes within [constant Projectile.HIT_RADIUS]); melee resolves instantly
-## against every live monster within `_attack_range` and
+## against every live monster within that slot's attack range and
 ## [constant CAST_ARC_DEGREES] of the aim direction. docs/0019.
 ##
 ## G3 adds [method gain_xp]: main.gd calls it with a dead monster's `xp_reward`
@@ -51,6 +52,19 @@ extends CharacterBody3D
 ## (how many extra projectiles a ranged cast fans out, [method _fire_projectile]/
 ## [method _fire_projectile_directional]) and `life_on_kill` (a flat heal
 ## main.gd applies via [method heal] after a kill it caused).
+##
+## G9 (issue #16, docs/0022) generalizes the single skill into three
+## independent slots — Q (slot 0, always unlocked), W (slot 1, [SkillSlots]'
+## level 10) and E (slot 2, level 20) — each with its OWN skill, attack
+## profile/range/speed and cooldown timer, composed from the SAME shared
+## `contributions` (equipment + level + supports) [method _recompose_stats]
+## already built for slot 0 — supports and gear still apply everywhere, only
+## the skill's own damage/range/crit/speed differ per slot. [method cast_at]
+## grew an optional `slot` parameter (default 0, so every pre-G9 call site —
+## main.gd's Q handler, every existing scene test — keeps compiling and
+## behaving identically); main.gd's W/E handlers pass 1/2. [method set_skill]/
+## [method skill_id] are now thin slot-0 aliases over [method set_slot_skill]/
+## [method slot_skill_id] for the same reason.
 ##
 ## Godot notes: [CharacterBody3D] is the engine's kinematic body — it moves by
 ## `move_and_slide()` from a `velocity` we set each physics tick, rather than by
@@ -123,13 +137,25 @@ signal level_up(level: int)
 var _config: Dictionary = {}
 ## The pristine `player` object of `shared/player.json`.
 var _base_config: Dictionary = {}
-## The active skill (G2, `shared/skills.json` entry) — replaces the unarmed
-## baseline in _recompose_stats. Empty until main.gd calls [method set_skill]
-## (the pre-pick window, while the choice screen has the tree paused).
-var _skill: Dictionary = {}
-## Cached from `_skill.kind` so _recompose_stats/_try_attack don't re-parse it
-## every call. "melee" until a skill is set.
-var _skill_kind: String = "melee"
+## The three skill slots (G9, docs/0022) — index 0 is Q (always unlocked),
+## 1 is W ([SkillSlots] level 10), 2 is E (level 20). Each entry is a
+## `shared/skills.json` entry, empty until main.gd calls [method set_slot_skill]
+## for that slot (the pre-pick window for slot 0, or before a slot's own pick,
+## while a choice screen has the tree paused). Sized to [constant SkillSlots.SLOT_COUNT].
+var _slot_skills: Array[Dictionary] = [{}, {}, {}]
+## Cached from each slot's `skill.kind` so _recompose_stats/_cast don't
+## re-parse it every call. "melee" until that slot's skill is set.
+var _slot_kinds: Array[String] = ["melee", "melee", "melee"]
+## Per-slot composed attack range/speed/profile/cooldown — see _recompose_stats.
+var _slot_attack_ranges: Array[float] = [DEFAULT_ATTACK_RANGE, DEFAULT_ATTACK_RANGE, DEFAULT_ATTACK_RANGE]
+var _slot_seconds_between_attacks: Array[float] = [
+	1.0 / DEFAULT_ATTACK_SPEED, 1.0 / DEFAULT_ATTACK_SPEED, 1.0 / DEFAULT_ATTACK_SPEED,
+]
+var _slot_attacks: Array[AttackProfile] = [null, null, null]
+## Seconds until each slot's next cast/swing is allowed; 0 means ready. Ticks
+## down independently per slot in _physics_process — W on cooldown never
+## blocks Q or E.
+var _slot_cooldowns: Array[float] = [0.0, 0.0, 0.0]
 ## Item base definitions from `shared/items.json`, indexed by id.
 var _item_bases_by_id: Dictionary = {}
 var _combat_constants: Dictionary = {}
@@ -157,12 +183,7 @@ var _added_projectiles: int = 0
 ## after a kill this player caused.
 var _life_on_kill: int = 0
 var _move_speed: float = DEFAULT_MOVE_SPEED
-var _attack_range: float = DEFAULT_ATTACK_RANGE
-var _seconds_between_attacks: float = 1.0 / DEFAULT_ATTACK_SPEED
-## Seconds until the next swing is allowed; 0 means ready.
-var _attack_cooldown: float = 0.0
 var _health: Health
-var _attack: AttackProfile
 ## Shared per-scene calculator, injected by main (one RNG stream, ADR 0004).
 var _calculator: DamageCalculator
 ## Monster this player is ordered to kill; null while just moving.
@@ -273,32 +294,94 @@ func defense_profile(incoming: AttackProfile.DamageType) -> DefenseProfile:
 	return CombatProfiles.defense_from_data(_config, incoming, _combat_constants)
 
 
-## The current outgoing-hit profile (base + equipment). Read-only access for UI
-## and tests; hits themselves are resolved in _try_attack.
+## Slot 0 / Q's current outgoing-hit profile (base + equipment). Read-only
+## access for UI and tests; hits themselves are resolved in _try_attack. Use
+## [method slot_skill]/`_slot_attacks` (no public getter yet — nothing outside
+## this class has needed slot 1/2's profile directly) for another slot.
 func attack_profile() -> AttackProfile:
-	return _attack
+	return _slot_attacks[0]
 
 
 func inventory() -> Inventory:
 	return _inventory
 
 
-## Sets the active skill (G2) and recomposes stats so it takes effect
+## Sets slot 0 / Q's skill (G2) and recomposes stats so it takes effect
 ## immediately — called once by main.gd after a fresh pick, a save load, or a
 ## test's `starting_skill_id` pin. [param skill] is a `shared/skills.json` entry
 ## (see [SkillCatalog]); an empty Dictionary is a no-op safety net for a bad id.
+## A thin alias over [method set_slot_skill] (G9, docs/0022) kept under its
+## original name since every pre-G9 caller already spells it this way.
 func set_skill(skill: Dictionary) -> void:
+	set_slot_skill(0, skill)
+
+
+## Slot 0 / Q's skill id, or "" before one has been set. Read by main.gd to
+## persist the choice (M4/G2, [SaveData]). A thin alias over
+## [method slot_skill_id] (G9, docs/0022).
+func skill_id() -> String:
+	return slot_skill_id(0)
+
+
+## Sets [param slot]'s skill (G9, docs/0022 — [param slot] is 0/Q, 1/W or 2/E)
+## and recomposes stats so it takes effect immediately. Called by main.gd after
+## a fresh Q pick, a level-10/20 W/E pick, a save load (including the
+## retroactive-unlock catch-up), or a test driving a slot directly. [param skill]
+## is a `shared/skills.json` entry; an empty Dictionary is a no-op safety net —
+## for a bad id, AND for the ordinary "this slot has no pick yet" case a save's
+## `secondary_skill_id`/`tertiary_skill_id` produces before level 10/20.
+func set_slot_skill(slot: int, skill: Dictionary) -> void:
 	if skill.is_empty():
 		return
-	_skill = skill
-	_skill_kind = String(skill.get("kind", "melee"))
+	_slot_skills[slot] = skill
 	_recompose_stats()
 
 
-## The active skill's id, or "" before one has been set. Read by main.gd to
-## persist the choice (M4/G2, [SaveData]).
-func skill_id() -> String:
-	return String(_skill.get("id", ""))
+## [param slot]'s skill id, or "" before that slot has a pick. Read by main.gd
+## to persist the choice (SaveData), by tests, and by the slot HUD.
+func slot_skill_id(slot: int) -> String:
+	return String(_slot_skills[slot].get("id", ""))
+
+
+## [param slot]'s full `shared/skills.json` entry (empty if unset) — the slot
+## HUD reads this for the name/element it displays.
+func slot_skill(slot: int) -> Dictionary:
+	return _slot_skills[slot]
+
+
+## True once [param slot] has unlocked per [SkillSlots] (slot 0 always; slot 1
+## at level 10, slot 2 at level 20).
+func is_slot_unlocked(slot: int) -> bool:
+	return SkillSlots.is_unlocked(slot, _level)
+
+
+## The level [param slot] unlocks at (mirrors [SkillSlots.unlock_level]) — the
+## slot HUD's "Lv N" locked-slot label reads this directly.
+func slot_unlock_level(slot: int) -> int:
+	return SkillSlots.unlock_level(slot)
+
+
+## Fraction of [param slot]'s cooldown remaining, 0.0 (ready) to 1.0 (just
+## cast) — the slot HUD's dimming reads this; no other code needs a fraction
+## rather than the raw seconds-remaining internal state.
+func slot_cooldown_fraction(slot: int) -> float:
+	var total: float = _slot_seconds_between_attacks[slot]
+	if total <= 0.0:
+		return 0.0
+	return clampf(_slot_cooldowns[slot] / total, 0.0, 1.0)
+
+
+## Every slot's currently-bound skill id, empty slots omitted — main.gd passes
+## this to [SkillCatalog.offer] as the level-10/20 offer's exclusion list
+## (docs/0022: a fresh W/E offer never repeats a skill already sitting in
+## another slot).
+func owned_skill_ids() -> Array[String]:
+	var ids: Array[String] = []
+	for slot: int in SkillSlots.SLOT_COUNT:
+		var id: String = slot_skill_id(slot)
+		if not id.is_empty():
+			ids.append(id)
+	return ids
 
 
 ## Owned support ids (G8, docs/0021), duplicates preserved — read by main.gd
@@ -434,12 +517,18 @@ func unequip_slot(slot: String) -> void:
 ## this is the single place their effect reaches every stat the composition
 ## pipeline already understands. `_projectile_speed`/`_added_projectiles`/
 ## `_life_on_kill` are synced from the composed output the same way
-## `_move_speed`/`_attack_range` already are.
+## `_move_speed` already is.
+##
+## G9 (docs/0022): `contributions` (equipment + level + supports) is now
+## composed once per slot, against each slot's OWN skill overlay — a support
+## like `added_projectiles` or `increased_damage` therefore reaches whichever
+## slot casts, not just slot 0. `_config` itself stays slot 0's composed
+## Dictionary: `move_speed`/`max_health`/`projectile_speed`/`added_projectiles`/
+## `life_on_kill` never come from a skill overlay (no skill sets those fields —
+## see [SkillCatalog.attack_config]), so reading them off slot 0's composition
+## is exactly as correct as any other slot's would be, and avoids composing a
+## fourth, skill-less Dictionary just for these five fields.
 func _recompose_stats() -> void:
-	var skill_base: Dictionary = _base_config.duplicate(true)
-	if not _skill.is_empty():
-		skill_base.merge(SkillCatalog.attack_config(_skill), true)
-
 	var contributions: Array[Dictionary] = []
 	for item: Dictionary in _inventory.equipped_items():
 		var base: Dictionary = _item_bases_by_id.get(String(item.get("base_id", "")), {})
@@ -447,17 +536,27 @@ func _recompose_stats() -> void:
 	contributions.append(_progression.bonus_contribution(_level))
 	if _support_catalog != null:
 		contributions.append(_support_catalog.contribution_for_owned(_owned_supports))
-	_config = PlayerStats.compose(skill_base, contributions)
+
+	for slot: int in SkillSlots.SLOT_COUNT:
+		var skill_base: Dictionary = _base_config.duplicate(true)
+		var skill: Dictionary = _slot_skills[slot]
+		if not skill.is_empty():
+			skill_base.merge(SkillCatalog.attack_config(skill), true)
+		var composed: Dictionary = PlayerStats.compose(skill_base, contributions)
+		_slot_kinds[slot] = String(skill.get("kind", "melee"))
+		_slot_attack_ranges[slot] = float(composed.get("attack_range", DEFAULT_ATTACK_RANGE))
+		var speed_key: String = "cast_speed" if _slot_kinds[slot] == "ranged" else "attack_speed"
+		_slot_seconds_between_attacks[slot] = 1.0 / maxf(
+			float(composed.get(speed_key, DEFAULT_ATTACK_SPEED)), 0.01
+		)
+		_slot_attacks[slot] = CombatProfiles.attack_from_data(composed)
+		if slot == 0:
+			_config = composed
+
 	_move_speed = float(_config.get("move_speed", DEFAULT_MOVE_SPEED))
-	_attack_range = float(_config.get("attack_range", DEFAULT_ATTACK_RANGE))
 	_projectile_speed = float(_config.get("projectile_speed", Projectile.SPEED))
 	_added_projectiles = maxi(0, int(_config.get("added_projectiles", 0)))
 	_life_on_kill = maxi(0, int(_config.get("life_on_kill", 0)))
-	var speed_key: String = "cast_speed" if _skill_kind == "ranged" else "attack_speed"
-	_seconds_between_attacks = 1.0 / maxf(
-		float(_config.get(speed_key, DEFAULT_ATTACK_SPEED)), 0.01
-	)
-	_attack = CombatProfiles.attack_from_data(_config)
 	var new_max_health: int = maxi(1, int(_config.get("max_health", _health.max_health)))
 	if new_max_health != _health.max_health:
 		_health.max_health = new_max_health
@@ -507,7 +606,10 @@ func _update_health_bar() -> void:
 
 
 func _physics_process(delta: float) -> void:
-	_attack_cooldown = maxf(_attack_cooldown - delta, 0.0)
+	# Each slot's cooldown ticks down independently (G9, docs/0022) — W on
+	# cooldown never delays Q or E.
+	for slot: int in SkillSlots.SLOT_COUNT:
+		_slot_cooldowns[slot] = maxf(_slot_cooldowns[slot] - delta, 0.0)
 	if _dead:
 		velocity = Vector3.ZERO
 		move_and_slide()
@@ -518,7 +620,8 @@ func _physics_process(delta: float) -> void:
 	if _attack_target != null:
 		var to_target: Vector3 = _attack_target.global_position - global_position
 		to_target.y = 0.0
-		if to_target.length() <= _attack_range:
+		# The click-order path always swings slot 0 / Q's skill, unchanged since G2.
+		if to_target.length() <= _slot_attack_ranges[0]:
 			_face(to_target)
 			velocity = Vector3.ZERO
 			move_and_slide()
@@ -583,19 +686,21 @@ func _face(direction: Vector3) -> void:
 
 
 func _try_attack() -> void:
-	if _calculator == null or _attack_cooldown > 0.0:
+	if _calculator == null or _slot_cooldowns[0] > 0.0:
 		return
-	_attack_cooldown = _seconds_between_attacks
-	if _skill_kind == "ranged":
+	_slot_cooldowns[0] = _slot_seconds_between_attacks[0]
+	if _slot_kinds[0] == "ranged":
 		_fire_projectile()
 		return
-	_resolve_hit_on(_attack_target)
+	_resolve_hit_on(_attack_target, 0)
 
 
 ## Ranged-skill attack (G2, docs/0016): a simple target-locked homing
 ## [Projectile] instead of an instant hit — it resolves the actual damage
 ## through the same [DamageCalculator]/[DefenseProfile] path on impact, so
-## melee and ranged skills share every rule except when the hit lands.
+## melee and ranged skills share every rule except when the hit lands. The
+## click-order path always swings slot 0 / Q's skill (G9, docs/0022) — order_attack
+## never targeted a slot, so this stays as it was pre-G9.
 ##
 ## G8 (docs/0021): `added_projectiles` spawns that many extras, all homing on
 ## the same target — there's no "direction" to fan a lock-on shot around, so
@@ -612,20 +717,24 @@ func _fire_projectile() -> void:
 		projectile.global_position = (
 			global_position + Vector3.UP * PROJECTILE_SPAWN_HEIGHT + right * offset
 		)
-		projectile.setup_homing(_attack_target, _attack, _calculator, _projectile_speed)
+		projectile.setup_homing(_attack_target, _slot_attacks[0], _calculator, _projectile_speed)
 
 
-## The Q-cast entry point (G6, issue #13, docs/0019) — main.gd's `cast_primary`
-## handler calls this with the mouse's ground-plane point. Casts the equipped
-## skill from wherever the player currently stands: no walk-into-range (unlike
-## [method order_attack]), no target lock, gated by the exact same cooldown as
-## the click-to-attack path (a cast while on cooldown is silently ignored, no
-## queueing). Faces the player toward [param aim_point] (Y-zeroed, same
-## convention as movement facing) before the cast resolves — but only when the
-## cast actually fires, so a cooldown-gated Q press does nothing at all, not
-## even turn the character.
-func cast_at(aim_point: Vector3) -> void:
-	if _dead or _calculator == null or _attack_cooldown > 0.0:
+## The Q/W/E-cast entry point (G6, issue #13, docs/0019; G9, issue #16,
+## docs/0022) — main.gd's `cast_primary`/`cast_secondary`/`cast_tertiary`
+## handlers call this with the mouse's ground-plane point and [param slot]
+## (0/1/2; defaults to 0 so every pre-G9 call site — Q's own handler, every
+## existing scene test — keeps compiling and behaving identically). Casts
+## [param slot]'s skill from wherever the player currently stands: no
+## walk-into-range (unlike [method order_attack]), no target lock, gated by
+## THAT slot's own cooldown alone (a cast while its slot is on cooldown, or
+## before its slot has unlocked per [SkillSlots], is silently ignored — no
+## queueing, and a locked slot behaves exactly like an on-cooldown one).
+## Faces the player toward [param aim_point] (Y-zeroed, same convention as
+## movement facing) before the cast resolves — but only when the cast actually
+## fires, so a rejected press does nothing at all, not even turn the character.
+func cast_at(aim_point: Vector3, slot: int = 0) -> void:
+	if _dead or _calculator == null or not is_slot_unlocked(slot) or _slot_cooldowns[slot] > 0.0:
 		return
 	var to_aim: Vector3 = aim_point - global_position
 	to_aim.y = 0.0
@@ -635,34 +744,36 @@ func cast_at(aim_point: Vector3) -> void:
 		# Aiming (near) on top of ourselves: keep whatever direction we already
 		# face rather than feeding a zero vector into range/arc math.
 		to_aim = -global_transform.basis.z
-	_attack_cooldown = _seconds_between_attacks
-	_cast(to_aim)
+	_slot_cooldowns[slot] = _slot_seconds_between_attacks[slot]
+	_cast(to_aim, slot)
 
 
-## The small core [param aim_direction] fans out into a ranged or melee cast
-## (G6). Kept separate from [method cast_at] so a future slotted skill (G9)
-## or a support-modified one (G8) has one obvious place to plug in a different
-## skill's precomposed fields without touching the cooldown/facing contract
-## above.
-func _cast(aim_direction: Vector3) -> void:
-	if _skill_kind == "ranged":
-		_fire_projectile_directional(aim_direction)
+## The small core [param aim_direction]/[param slot] fans out into a ranged or
+## melee cast (G6; G9 added [param slot]). Kept separate from [method cast_at]
+## so a support-modified skill (G8, which changes what feeds each slot's
+## composed fields upstream in _recompose_stats) never needs this or
+## [method cast_at] touched.
+func _cast(aim_direction: Vector3, slot: int) -> void:
+	if _slot_kinds[slot] == "ranged":
+		_fire_projectile_directional(aim_direction, slot)
 	else:
-		_melee_cast(aim_direction)
+		_melee_cast(aim_direction, slot)
 
 
-## Fires a directional [Projectile] (G6, docs/0019): constant velocity along
-## [param direction], no target, travels up to `_attack_range` metres before
-## despawning, damaging the first live monster it passes within
-## [constant Projectile.HIT_RADIUS] — see [method Projectile.setup_directional].
+## Fires a directional [Projectile] (G6, docs/0019) for [param slot] (G9,
+## docs/0022): constant velocity along [param direction], no target, travels up
+## to that slot's own `_slot_attack_ranges` metres before despawning, damaging
+## the first live monster it passes within [constant Projectile.HIT_RADIUS] —
+## see [method Projectile.setup_directional].
 ##
-## G8 (docs/0021): `added_projectiles` fans out that many extras around
-## [param direction], each rotated [constant SUPPORT_PROJECTILE_FAN_DEGREES]
-## further from center (symmetric either side for an even count) — this is
-## the "small fan" the ticket asks for, and it works identically whether one
-## or several are in the air, so a base cast (count 1) is just a fan of one
-## with a zero offset.
-func _fire_projectile_directional(direction: Vector3) -> void:
+## G8 (docs/0021): `added_projectiles` (a GLOBAL support contribution, applied
+## identically to every slot's composition — docs/0022) fans out that many
+## extras around [param direction], each rotated
+## [constant SUPPORT_PROJECTILE_FAN_DEGREES] further from center (symmetric
+## either side for an even count) — this is the "small fan" the ticket asks
+## for, and it works identically whether one or several are in the air, so a
+## base cast (count 1) is just a fan of one with a zero offset.
+func _fire_projectile_directional(direction: Vector3, slot: int) -> void:
 	var forward: Vector3 = direction.normalized()
 	var count: int = 1 + _added_projectiles
 	for i: int in count:
@@ -672,19 +783,22 @@ func _fire_projectile_directional(direction: Vector3) -> void:
 		get_parent().add_child(projectile)
 		projectile.global_position = global_position + Vector3.UP * PROJECTILE_SPAWN_HEIGHT
 		projectile.setup_directional(
-			fanned_direction, _attack_range, _attack, _calculator, _projectile_speed
+			fanned_direction, _slot_attack_ranges[slot], _slot_attacks[slot], _calculator,
+			_projectile_speed
 		)
 
 
-## Resolves a melee Q-cast instantly (G6, docs/0019): every live monster in the
-## "monsters" group within `_attack_range` and [constant CAST_ARC_DEGREES] of
-## [param aim_direction] takes a hit via [method _resolve_hit_on] — a monster
-## standing (almost) on top of the player is hit regardless of angle, since a
-## direction to it is meaningless at zero distance. No auto-walk into range:
-## anything outside `_attack_range` right now is simply missed.
-func _melee_cast(aim_direction: Vector3) -> void:
+## Resolves a melee Q/W/E-cast instantly (G6, docs/0019; G9, docs/0022) for
+## [param slot]: every live monster in the "monsters" group within that slot's
+## `_slot_attack_ranges` and [constant CAST_ARC_DEGREES] of [param aim_direction]
+## takes a hit via [method _resolve_hit_on] — a monster standing (almost) on
+## top of the player is hit regardless of angle, since a direction to it is
+## meaningless at zero distance. No auto-walk into range: anything outside
+## that slot's range right now is simply missed.
+func _melee_cast(aim_direction: Vector3, slot: int) -> void:
 	var forward: Vector3 = aim_direction.normalized()
 	var half_arc: float = deg_to_rad(CAST_ARC_DEGREES / 2.0)
+	var attack_range: float = _slot_attack_ranges[slot]
 	for node: Node in get_tree().get_nodes_in_group("monsters"):
 		var monster: Monster = node as Monster
 		if monster == null or monster.is_dead():
@@ -692,22 +806,23 @@ func _melee_cast(aim_direction: Vector3) -> void:
 		var to_monster: Vector3 = monster.global_position - global_position
 		to_monster.y = 0.0
 		var distance: float = to_monster.length()
-		if distance > _attack_range:
+		if distance > attack_range:
 			continue
 		if distance > FACING_EPSILON and forward.angle_to(to_monster.normalized()) > half_arc:
 			continue
-		_resolve_hit_on(monster)
+		_resolve_hit_on(monster, slot)
 
 
-## The shared damage-resolution core (G6, docs/0019): builds [param monster]'s
-## defense against `_attack`'s damage type, resolves the hit through the same
-## injected [DamageCalculator], and hands the result to
-## [method Monster.take_hit] — the one path every attack (click-order melee,
-## Q-cast melee) that lands an instant hit goes through, so a future change to
-## the pipeline only has to happen here.
-func _resolve_hit_on(monster: Monster) -> void:
-	var defense: DefenseProfile = monster.defense_profile(_attack.damage_type)
-	var result: DamageResult = _calculator.calculate_hit(_attack, defense)
+## The shared damage-resolution core (G6, docs/0019; G9 added [param slot],
+## docs/0022): builds [param monster]'s defense against [param slot]'s attack
+## damage type, resolves the hit through the same injected [DamageCalculator],
+## and hands the result to [method Monster.take_hit] — the one path every
+## attack (click-order melee, any slot's cast) that lands an instant hit goes
+## through, so a future change to the pipeline only has to happen here.
+func _resolve_hit_on(monster: Monster, slot: int) -> void:
+	var attack: AttackProfile = _slot_attacks[slot]
+	var defense: DefenseProfile = monster.defense_profile(attack.damage_type)
+	var result: DamageResult = _calculator.calculate_hit(attack, defense)
 	monster.take_hit(result)
 
 
