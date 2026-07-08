@@ -7,14 +7,14 @@ geometry_parsed_geometry_type = 1
 agent_radius = 0.5
 
 [sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
-size = Vector2(40, 40)
+size = Vector2(200, 200)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ground"]
 albedo_color = Color(0.28, 0.34, 0.29, 1)
 roughness = 1.0
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_ground"]
-size = Vector3(40, 0.5, 40)
+size = Vector3(200, 0.5, 200)
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_obstacle"]
 albedo_color = Color(0.42, 0.4, 0.38, 1)
@@ -111,3 +111,143 @@ material_override = SubResource("StandardMaterial3D_obstacle")
 
 [node name="Collision" type="CollisionShape3D" parent="PillarC"]
 shape = SubResource("BoxShape3D_pillar")
+
+[node name="PillarD" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 40, 1.5, -40)
+
+[node name="Mesh" type="MeshInstance3D" parent="PillarD"]
+mesh = SubResource("BoxMesh_pillar")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="PillarD"]
+shape = SubResource("BoxShape3D_pillar")
+
+[node name="PillarE" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -40, 1.5, 40)
+
+[node name="Mesh" type="MeshInstance3D" parent="PillarE"]
+mesh = SubResource("BoxMesh_pillar")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="PillarE"]
+shape = SubResource("BoxShape3D_pillar")
+
+[node name="PillarF" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 55, 1.5, 20)
+
+[node name="Mesh" type="MeshInstance3D" parent="PillarF"]
+mesh = SubResource("BoxMesh_pillar")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="PillarF"]
+shape = SubResource("BoxShape3D_pillar")
+
+[node name="PillarG" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -55, 1.5, -20)
+
+[node name="Mesh" type="MeshInstance3D" parent="PillarG"]
+mesh = SubResource("BoxMesh_pillar")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="PillarG"]
+shape = SubResource("BoxShape3D_pillar")
+
+[node name="PillarH" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 80)
+
+[node name="Mesh" type="MeshInstance3D" parent="PillarH"]
+mesh = SubResource("BoxMesh_pillar")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="PillarH"]
+shape = SubResource("BoxShape3D_pillar")
+
+[node name="PillarI" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, -80)
+
+[node name="Mesh" type="MeshInstance3D" parent="PillarI"]
+mesh = SubResource("BoxMesh_pillar")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="PillarI"]
+shape = SubResource("BoxShape3D_pillar")
+
+[node name="PillarJ" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 80, 1.5, 0)
+
+[node name="Mesh" type="MeshInstance3D" parent="PillarJ"]
+mesh = SubResource("BoxMesh_pillar")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="PillarJ"]
+shape = SubResource("BoxShape3D_pillar")
+
+[node name="PillarK" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -80, 1.5, 0)
+
+[node name="Mesh" type="MeshInstance3D" parent="PillarK"]
+mesh = SubResource("BoxMesh_pillar")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="PillarK"]
+shape = SubResource("BoxShape3D_pillar")
+
+[node name="BlockA" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30, 0.75, 60)
+
+[node name="Mesh" type="MeshInstance3D" parent="BlockA"]
+mesh = SubResource("BoxMesh_block")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="BlockA"]
+shape = SubResource("BoxShape3D_block")
+
+[node name="BlockB" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30, 0.75, -60)
+
+[node name="Mesh" type="MeshInstance3D" parent="BlockB"]
+mesh = SubResource("BoxMesh_block")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="BlockB"]
+shape = SubResource("BoxShape3D_block")
+
+[node name="BlockC" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 70, 0.75, -50)
+
+[node name="Mesh" type="MeshInstance3D" parent="BlockC"]
+mesh = SubResource("BoxMesh_block")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="BlockC"]
+shape = SubResource("BoxShape3D_block")
+
+[node name="BlockD" type="StaticBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -70, 0.75, 50)
+
+[node name="Mesh" type="MeshInstance3D" parent="BlockD"]
+mesh = SubResource("BoxMesh_block")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="BlockD"]
+shape = SubResource("BoxShape3D_block")
+
+[node name="WallC" type="StaticBody3D" parent="."]
+transform = Transform3D(0.707107, 0, -0.707107, 0, 1, 0, 0.707107, 0, 0.707107, 60, 1, 60)
+
+[node name="Mesh" type="MeshInstance3D" parent="WallC"]
+mesh = SubResource("BoxMesh_wall")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="WallC"]
+shape = SubResource("BoxShape3D_wall")
+
+[node name="WallD" type="StaticBody3D" parent="."]
+transform = Transform3D(0.707107, 0, -0.707107, 0, 1, 0, 0.707107, 0, 0.707107, -60, 1, -60)
+
+[node name="Mesh" type="MeshInstance3D" parent="WallD"]
+mesh = SubResource("BoxMesh_wall")
+material_override = SubResource("StandardMaterial3D_obstacle")
+
+[node name="Collision" type="CollisionShape3D" parent="WallD"]
+shape = SubResource("BoxShape3D_wall")
