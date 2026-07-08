@@ -48,19 +48,33 @@ func after_test() -> void:
 
 
 ## Instantiates main.tscn with a fixed rng_seed, set *before* the scene enters the
-## tree so `_ready` picks it up — mirrors test_loot.gd's `_seeded_main`.
+## tree so `_ready` picks it up — mirrors test_loot.gd's `_seeded_main`, including
+## pinning the G1 spawner to one forced fallen_imp so the kill order this test's
+## seeds were swept for is preserved (see test_loot.gd's comment on why the
+## forced id can't disturb the loot stream).
 func _seeded_main(seed_value: int) -> Node3D:
 	var packed: PackedScene = load("res://scenes/main/main.tscn")
 	var instance: Node3D = packed.instantiate() as Node3D
 	instance.set("rng_seed", seed_value)
+	_pin_spawner(instance)
 	return instance
 
 
 ## A fresh, unseeded instance: rng_seed stays 0, the same as a real boot, so
-## _ready's "load the save if one exists" path is exercised for real.
+## _ready's "load the save if one exists" path is exercised for real. The
+## spawner is still pinned — the reloaded session's kill must hit a fallen_imp
+## for the second loot roll to be comparable.
 func _fresh_main() -> Node3D:
 	var packed: PackedScene = load("res://scenes/main/main.tscn")
-	return packed.instantiate() as Node3D
+	var instance: Node3D = packed.instantiate() as Node3D
+	_pin_spawner(instance)
+	return instance
+
+
+func _pin_spawner(instance: Node3D) -> void:
+	var spawner: Node = instance.get_node("MonsterSpawner")
+	spawner.set("target_population", 1)
+	spawner.set("forced_monster_id", "fallen_imp")
 
 
 func _free_main(runner: GdUnitSceneRunner, main: Node3D) -> void:

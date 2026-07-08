@@ -40,10 +40,18 @@ func after_test() -> void:
 ## the tree so `_ready` picks it up. `set()` (not `.rng_seed =`) sidesteps a
 ## static "unsafe property access" warning: main.gd has no class_name, so the
 ## exported var isn't visible on the `Node3D` type this returns.
+##
+## The spawner (G1) is pinned to one forced fallen_imp the same way, so "kill
+## the first monster" stays exactly the kill sequence DROP_SEED was swept for —
+## a forced id never draws from the spawn RNG stream, and the loot stream is
+## untouched either way (own stream, ADR 0011).
 func _seeded_main(seed_value: int) -> Node3D:
 	var packed: PackedScene = load("res://scenes/main/main.tscn")
 	var instance: Node3D = packed.instantiate() as Node3D
 	instance.set("rng_seed", seed_value)
+	var spawner: Node = instance.get_node("MonsterSpawner")
+	spawner.set("target_population", 1)
+	spawner.set("forced_monster_id", "fallen_imp")
 	return instance
 
 
