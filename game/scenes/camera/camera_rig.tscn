@@ -7,4 +7,4 @@ script = ExtResource("1_camera_rig")
 
 [node name="Camera3D" type="Camera3D" parent="."]
 projection = 1
-size = 18.0
+size = 24.0
