@@ -370,3 +370,43 @@ make validate-data   # validates shared/*.json against shared/schemas/*
   itself is never freed). No ADR — a straightforward billboard-quad bar was
   judged not to need one; the design notes above live as doc-comments on
   `HealthBar3D` itself.
+- **G5 — Low-poly visual pass: character, monsters, terrain — DONE.**
+  Replaces the placeholder capsule/box meshes, procedurally (docs/0018 covers
+  why, over downloading CC0 assets — no CREDITS.md, nothing was downloaded).
+  `Player` (`game/scenes/player/player.tscn`) is five stacked `BoxMesh`es
+  (legs/torso/arms/head) under a `Body` `Node3D`, authored directly in the
+  `.tscn` since only one look is ever needed; "Nose" is unchanged as the
+  facing indicator. `Monster` (`game/scenes/monster/monster.gd`) builds its
+  silhouette at runtime instead — `_build_visual(id)`, called from `setup()`
+  once `monster_id` is known — because `fallen_imp` (squat, horned, solid
+  red, ~1.22 m) and `cinder_wraith` (tall, hooded, ember-glow, ~1.49 m,
+  narrower) need to read as visually distinct creatures, which one static
+  `.tscn` shared by both ids never could. **Adding a new monster's look**:
+  add a `_build_<id>()` method (using the shared `_add_box_part(size, offset,
+  color, rotation_degrees)` primitive) and one more case in `_build_visual`'s
+  `match id:` — an unrecognized id falls back to the `fallen_imp` shape
+  rather than rendering invisible. Both entities keep every non-visual
+  contract: collision capsules and nav footprints are untouched (visual
+  swap only), the -Z facing convention holds, and `CombatFx.flash_all` (an
+  array-looped `flash()`, additive — the original single-mesh `flash()` is
+  unchanged) flashes every body part on a hit so a multi-mesh silhouette
+  reads as one hit, not one lit-up limb. `Monster.HEALTH_BAR_HEIGHT` moved
+  1.6 -> 1.8 to clear `cinder_wraith`'s taller hood with the same ~0.3 m
+  margin the old shared capsule had. Terrain: `test_map.gd` scatters 16
+  large tinted `PlaneMesh` ground patches (dry grass/moss/sand/dark-rock
+  variants) and, via a 10x10 grid of candidate cells, rocks/trees/ruins
+  (`game/scenes/world/props/*.tscn` — `StaticBody3D` + one box collider
+  each, the same pattern the hand-placed walls/pillars use, so the runtime
+  navmesh bake picks them up per ADR 0009) or decorative pebbles (no
+  collider), all placed by a fixed sine-hash of an index (`_hash01`, not
+  `randf()`/`randi()` — reproducible cosmetics, no RNG stream spent). A 12 m
+  safe zone around the origin (the player's spawn point) stays clear.
+  Re-measured bake time with the added colliders: ~165 ms for 62 scattered
+  props + 16 patches, still well under G1's ~1 s budget.
+  Scattered obstacles do lengthen a forced monster's worst-case path to the
+  player, so `test_loot.gd`'s chase timeout grew 900 -> 2400 frames, the
+  same bump `test_combat.gd` got in G1 for the same reason (docs/0015) — any
+  new scene test fighting a forced monster from a cold start should use a
+  similarly generous polling timeout. Design rationale (why procedural over
+  downloaded assets, the per-monster silhouette numbers, the bake
+  re-measurement) in docs/0018.
