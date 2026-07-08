@@ -525,3 +525,34 @@ make validate-data   # validates shared/*.json against shared/schemas/*
   (`""` = not yet picked), `_migrate_v4_to_v5` defaults a pre-G9 save to both
   empty. `project.godot` gained `cast_secondary` (W, keycode 87)/`cast_tertiary`
   (E, keycode 69). Design in `docs/0022`.
+- **G10 — Fix: free-aim projectiles whiff moving monsters; ranged feels
+  weak — DONE.** First human playtest bug (issue #17). `Player` gained
+  **aim assist**: at cast time (not per-tick in `Projectile`),
+  `_find_aim_assist_target` looks for the live monster whose perpendicular
+  distance to the aim ray (caster position along the aim direction, clamped
+  to the casting slot's range) is smallest and within
+  `AIM_ASSIST_RADIUS` (1.5 m); if found, `_fire_projectile_directional`
+  fires `Projectile.setup_homing` on it instead of `setup_directional` — a
+  homing shot re-tracks its target every tick and cannot be outrun by the
+  target's own movement, unlike a fixed-direction one. A fanned cast (G8's
+  `added_projectiles`) only homes its center-most projectile; the rest of
+  the fan stays directional. `Projectile.HIT_RADIUS` (the directional
+  per-tick sweep's forgiveness, and the homing "arrived" distance) went
+  0.5 -> 1.0 m, and `Projectile.SPEED`/`shared/player.json`'s
+  `projectile_speed` went 18 -> 28 m/s (one tick at the new speed and this
+  project's 60 Hz physics still advances less than half `HIT_RADIUS`, so no
+  tunneling). Ten of 33 `shared/skills.json` ranged entries were retuned so
+  every ranged skill clears a 7.0 raw-dps floor
+  (`(base_min+base_max)/2 * actions_per_second`) — `toxic_volley` (the skill
+  the playtest named) got the biggest bump, 5.4 -> 9.0 — while melee's
+  average dps keeps a premium over ranged's; a new data test
+  (`test_ranged_balance.gd`) guards both. The ticket's reported "sideways
+  chase" pathing bug did **not** reproduce under investigation — a
+  scene-runner probe of the exact scenario (stationary target, monster 5 m
+  out, open ground) showed `Monster`'s chase code (already symmetric with
+  `Player`'s own) closing in a dead-straight line at full `move_speed`; a
+  regression test (`test_monster_chase_pathing.gd`) locks that verified
+  behavior in rather than fixing a defect that wasn't there. Design,
+  the aim-assist rule, the full balance table, and the pathing
+  investigation's write-up (including the red herring the probe's own setup
+  produced first) are in `docs/0023`.
