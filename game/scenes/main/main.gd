@@ -32,17 +32,7 @@ const PICK_MASK: int = MONSTER_PICK_MASK | DROP_PICK_MASK
 ## orthographic camera sits 24 units out, and rays are cheap.
 const PICK_RAY_LENGTH: float = 200.0
 
-const MONSTER_SCENE: PackedScene = preload("res://scenes/monster/monster.tscn")
 const GROUND_DROP_SCENE: PackedScene = preload("res://scenes/loot/ground_drop.tscn")
-## The one M2 monster type; its stats live in `shared/monsters.json`.
-const MONSTER_ID: String = "fallen_imp"
-## Where the imps stand on the test map — level layout, not balance data. Far
-## corners on purpose: the chasers take a few seconds to reach the player's
-## starting area, so movement (and its tests) get an uncontested window first.
-const MONSTER_SPAWNS: Array[Vector3] = [
-	Vector3(16.0, 0.0, -14.0),
-	Vector3(14.0, 0.0, 16.0),
-]
 
 ## Master seed for the scene's RNG streams. 0 (the default) means "randomize, or
 ## load the existing save if one is on disk" (see _ready); integration tests set
@@ -60,9 +50,15 @@ var _calculator: DamageCalculator
 ## damage/crit rolls the fight happened to consume.
 var _loot_rng: RngService
 var _loot_roller: LootRoller
+## The spawner's monster-choice/position stream (G1, docs/0015): a third
+## dedicated stream so infinite spawning never perturbs combat or loot rolls.
+## Deliberately not part of the save envelope — spawn positions are ephemeral
+## world state, same call ADR 0012 already made for which specific monsters
+## are alive.
+var _spawn_rng: RngService
 var _pending_click: Vector2 = Vector2.ZERO
 var _has_pending_click: bool = false
-## The seed this run's two RNG streams derive from; kept around so _save_game can
+## The seed this run's RNG streams derive from; kept around so _save_game can
 ## write it back out (M4).
 var _master_seed: int = 0
 ## Minimal progress marker (M4): monsters killed this run. Not per-monster state —
@@ -74,6 +70,7 @@ var _monsters_killed: int = 0
 @onready var _sun: DirectionalLight3D = $Sun
 @onready var _monsters: Node3D = $Monsters
 @onready var _drops: Node3D = $Drops
+@onready var _spawner: MonsterSpawner = $MonsterSpawner
 @onready var _inventory_panel: InventoryPanel = $InventoryPanel
 @onready var _save_button: Button = $SaveUI/SaveButton
 ## Cloud-save sync adapter (M5, ADR 0013). `SyncConfig.enabled = false` in a
@@ -95,6 +92,7 @@ func _ready() -> void:
 		_master_seed = rng_seed if rng_seed != 0 else randi()
 	_rng = RngService.new(_master_seed)
 	_loot_rng = RngService.new(_master_seed + 1)
+	_spawn_rng = RngService.new(_master_seed + 2)
 	if not loaded.is_empty():
 		_rng.set_state(int(loaded.get("combat_rng_state", _rng.get_state())))
 		_loot_rng.set_state(int(loaded.get("loot_rng_state", _loot_rng.get_state())))
@@ -104,7 +102,8 @@ func _ready() -> void:
 	)
 	_player.setup_combat(_calculator)
 	_inventory_panel.setup(_player)
-	_spawn_monsters()
+	_spawner.monster_spawned.connect(_on_monster_spawned)
+	_spawner.setup(_player, _monsters, _drops, _calculator, _spawn_rng)
 	if not loaded.is_empty():
 		_apply_loaded_save(loaded)
 	_save_button.pressed.connect(_save_game)
@@ -161,17 +160,11 @@ func _pick_clickable(ray_origin: Vector3, ray_direction: Vector3) -> Object:
 	return collider
 
 
-func _spawn_monsters() -> void:
-	var monster_data: Dictionary = BalanceData.monster(MONSTER_ID)
-	var combat_constants: Dictionary = BalanceData.load_combat().get("combat", {})
-	if monster_data.is_empty():
-		return
-	for spawn: Vector3 in MONSTER_SPAWNS:
-		var monster: Monster = MONSTER_SCENE.instantiate() as Monster
-		monster.position = spawn
-		_monsters.add_child(monster)
-		monster.setup(monster_data, combat_constants, _calculator, _player)
-		monster.died.connect(_on_monster_died)
+## Wires a freshly spawned monster's death into loot rolling — the spawner owns
+## *when and where* monsters appear, main.gd still owns what happens on death
+## (unchanged from before G1).
+func _on_monster_spawned(monster: Monster) -> void:
+	monster.died.connect(_on_monster_died)
 
 
 ## Rolls the dead monster's loot table and drops the result where it fell. The

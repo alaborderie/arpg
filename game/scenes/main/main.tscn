@@ -6,6 +6,7 @@
 [ext_resource type="PackedScene" path="res://scenes/camera/camera_rig.tscn" id="4_camera_rig"]
 [ext_resource type="PackedScene" path="res://scenes/ui/inventory_panel.tscn" id="5_inventory_panel"]
 [ext_resource type="Script" path="res://scenes/sync/sync_service.gd" id="6_sync_service"]
+[ext_resource type="Script" path="res://scenes/world/monster_spawner.gd" id="7_monster_spawner"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
@@ -17,6 +18,9 @@ script = ExtResource("1_main")
 [node name="Monsters" type="Node3D" parent="."]
 
 [node name="Drops" type="Node3D" parent="."]
+
+[node name="MonsterSpawner" type="Node3D" parent="."]
+script = ExtResource("7_monster_spawner")
 
 [node name="CameraRig" parent="." instance=ExtResource("4_camera_rig")]
 target = NodePath("../Player")
