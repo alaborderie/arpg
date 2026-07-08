@@ -435,3 +435,19 @@ make validate-data   # validates shared/*.json against shared/schemas/*
   touch-playable. Design in `docs/0019`. Design rationale (why procedural over
   downloaded assets, the per-monster silhouette numbers, the bake
   re-measurement) in docs/0018.
+- **G7 — Spawner: half population + elite monsters — DONE.**
+  `MonsterSpawner.DEFAULT_TARGET_POPULATION` 10 -> 5. Each spawn gets a 1-in-10
+  `MonsterSpawnPicker.roll_is_elite` draw riding the existing spawn stream
+  (`master_seed + 2`); `MonsterSpawner.forced_elite` (-1/0/1) mirrors
+  `forced_monster_id`'s "skip the draw, don't override the result" test-knob
+  idiom - every scene test pinning a swept-seed kill sequence now also pins
+  `forced_elite = 0`. An elite is ~1.6x visual scale (health bar height scales
+  with it), 0.6x move speed, 3x max health, 3x XP - multipliers live in
+  `shared/combat.json`'s new `elite` block (schema_version 2), applied by
+  `Monster.setup()`'s new `is_elite`/`elite_config` params, never decided by
+  it. Nav agent radius/collision capsule stay unchanged (visual-only, same
+  precedent as G5's `cinder_wraith`). Loot bias: `shared/loot_tables.json`
+  rarities gained `elite_weight` (schema_version 2) - `LootRoller.roll_drop`'s
+  existing weighted rarity draw reads that column instead of `weight` for an
+  elite kill, so an elite kill's RNG draw sequence is identical in shape to a
+  normal one (no save/replay-breaking reorder). Design in `docs/0020`.
