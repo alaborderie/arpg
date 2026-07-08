@@ -12,6 +12,7 @@ extends RefCounted
 ##     "master_seed": int,          # main.gd's rng_seed (ADR 0004/0011)
 ##     "combat_rng_state": String,  # RngService.get_state(), the combat stream
 ##     "loot_rng_state": String,    # RngService.get_state(), the loot stream
+##     "supports_offer_rng_state": String, # G8: the support-offer stream (docs/0021)
 ##     "player": {
 ##       "health": int,
 ##       "position": {"x": float, "y": float, "z": float},
@@ -20,6 +21,7 @@ extends RefCounted
 ##       "skill_id": String,             # G2: the chosen skill (shared/skills.json id)
 ##       "level": int,                   # G3: current level (docs/0017)
 ##       "xp": int,                      # G3: total accumulated XP
+##       "supports": Array[String],      # G8: owned support ids, duplicates allowed (docs/0021)
 ##     },
 ##     "progress": {
 ##       "monsters_killed": int,
@@ -41,7 +43,16 @@ extends RefCounted
 ## `_migrate_v2_to_v3` is G3's step: a pre-G3 save has no `player.level`/
 ## `player.xp` (levels didn't exist), so it defaults to level 1, XP 0 — a
 ## returning save keeps its `progress.monsters_killed` untouched and simply
-## starts the XP/level curve from scratch (docs/0017).
+## starts the XP/level curve from scratch (docs/0017). `_migrate_v3_to_v4` is
+## G8's step: a pre-G8 save has no `player.supports` (supports didn't exist),
+## so it defaults to an empty array — a returning save simply owns no supports
+## yet. `supports_offer_rng_state` is deliberately left unset by this step
+## rather than defaulted to a placeholder: main.gd's load path already treats
+## a missing RNG-state key as "keep the freshly constructed stream's own
+## state" (the same `.get(key, _rng.get_state())` idiom `combat_rng_state`/
+## `loot_rng_state` restoration already uses), which is exactly correct here —
+## a pre-G8 save never drew from this stream, so there is no real state to
+## restore (docs/0021).
 ##
 ## RNG state as a String, not a number: [RandomNumberGenerator]'s `state` is a
 ## full 64-bit value, and Godot's JSON only has a double-precision number type
@@ -50,7 +61,7 @@ extends RefCounted
 ## the one that was actually saved. Formatting it as a decimal string sidesteps
 ## JSON's number type entirely; `int(String)` parses it back exactly.
 
-const CURRENT_SCHEMA_VERSION: int = 3
+const CURRENT_SCHEMA_VERSION: int = 4
 ## The skill a pre-G2 save (or any save missing `skill_id`) migrates to. See
 ## docs/0016 for why this particular skill.
 const DEFAULT_SKILL_ID: String = "quick_strike"
@@ -58,6 +69,9 @@ const DEFAULT_SKILL_ID: String = "quick_strike"
 ## returning player simply starts the new curve from the bottom (docs/0017).
 const DEFAULT_LEVEL: int = 1
 const DEFAULT_XP: int = 0
+## Supports a pre-G8 save (or any save missing `player.supports`) migrates to:
+## no supports owned — see docs/0021.
+const DEFAULT_SUPPORTS: Array[String] = []
 
 
 ## Builds a fresh envelope at CURRENT_SCHEMA_VERSION from raw scene state. Callers
@@ -66,6 +80,7 @@ static func build(
 	master_seed: int,
 	combat_rng_state: int,
 	loot_rng_state: int,
+	supports_offer_rng_state: int,
 	player_health: int,
 	player_position: Vector3,
 	bag: Array[Dictionary],
@@ -73,6 +88,7 @@ static func build(
 	skill_id: String,
 	level: int,
 	xp: int,
+	supports: Array[String],
 	monsters_killed: int,
 	saved_at_unix: int
 ) -> Dictionary:
@@ -82,6 +98,7 @@ static func build(
 		"master_seed": master_seed,
 		"combat_rng_state": "%d" % combat_rng_state,
 		"loot_rng_state": "%d" % loot_rng_state,
+		"supports_offer_rng_state": "%d" % supports_offer_rng_state,
 		"player": {
 			"health": player_health,
 			"position": _vector3_to_dict(player_position),
@@ -90,6 +107,7 @@ static func build(
 			"skill_id": skill_id,
 			"level": level,
 			"xp": xp,
+			"supports": supports.duplicate(),
 		},
 		"progress": {
 			"monsters_killed": monsters_killed,
@@ -127,6 +145,9 @@ static func migrate(raw: Dictionary) -> Dictionary:
 			2:
 				data = _migrate_v2_to_v3(data)
 				version = 3
+			3:
+				data = _migrate_v3_to_v4(data)
+				version = 4
 			_:
 				push_error("SaveData: no migration path from schema_version %d" % version)
 				return {}
@@ -181,6 +202,19 @@ static func level_from_player(data: Dictionary) -> int:
 static func xp_from_player(data: Dictionary) -> int:
 	var player: Dictionary = data.get("player", {})
 	return maxi(DEFAULT_XP, int(player.get("xp", DEFAULT_XP)))
+
+
+## The player's saved owned-support ids (G8), duplicates preserved (stacking —
+## see docs/0021). [param data] is a migrated envelope — always present at
+## CURRENT_SCHEMA_VERSION thanks to `_migrate_v3_to_v4`, but this still falls
+## back to an empty array so a caller handed a raw/unmigrated Dictionary never
+## reads a malformed list.
+static func supports_from_player(data: Dictionary) -> Array[String]:
+	var player: Dictionary = data.get("player", {})
+	var supports: Array[String] = []
+	for entry: Variant in player.get("supports", []):
+		supports.append(String(entry))
+	return supports
 
 
 static func _vector3_to_dict(position: Vector3) -> Dictionary:
@@ -243,5 +277,19 @@ static func _migrate_v2_to_v3(data: Dictionary) -> Dictionary:
 		player["level"] = DEFAULT_LEVEL
 	if not player.has("xp"):
 		player["xp"] = DEFAULT_XP
+	migrated["player"] = player
+	return migrated
+
+
+## G8 (docs/0021): a pre-G8 save has no `player.supports` — supports didn't
+## exist yet. Defaulting to an empty array means a returning player simply
+## owns no supports; `supports_offer_rng_state` is deliberately left absent
+## (see the class doc) rather than defaulted here.
+static func _migrate_v3_to_v4(data: Dictionary) -> Dictionary:
+	var migrated: Dictionary = data.duplicate(true)
+	migrated["schema_version"] = 4
+	var player: Dictionary = (migrated.get("player", {}) as Dictionary).duplicate(true)
+	if not player.has("supports"):
+		player["supports"] = DEFAULT_SUPPORTS.duplicate()
 	migrated["player"] = player
 	return migrated

@@ -17,6 +17,7 @@ const ITEMS_PATH: String = "res://shared/items.json"
 const LOOT_TABLES_PATH: String = "res://shared/loot_tables.json"
 const SKILLS_PATH: String = "res://shared/skills.json"
 const PROGRESSION_PATH: String = "res://shared/progression.json"
+const SUPPORTS_PATH: String = "res://shared/supports.json"
 
 
 ## Returns the parsed `player.json` document, e.g. `{schema_version, player: {...}}`.
@@ -53,6 +54,12 @@ static func load_skills() -> Dictionary:
 ## `{schema_version, progression: {...}}` (G3, [ProgressionCurve], docs/0017).
 static func load_progression() -> Dictionary:
 	return _load_json_object(PROGRESSION_PATH)
+
+
+## Returns the parsed `supports.json` document, e.g.
+## `{schema_version, supports: [...]}` (G8, [SupportCatalog], docs/0021).
+static func load_supports() -> Dictionary:
+	return _load_json_object(SUPPORTS_PATH)
 
 
 ## Returns the `monsters.json` entry whose `id` is [param monster_id], or an empty
