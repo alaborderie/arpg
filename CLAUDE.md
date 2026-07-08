@@ -127,6 +127,32 @@ client's sync adapter (`game/scenes/sync/sync_service.gd`,
 `game/data/sync_store.gd`/`sync_config.gd`) is safe to leave enabled with no
 server running.
 
+### AI-farming groundwork (M6): tool schema + deterministic resolver
+
+```sh
+curl -X POST localhost:8080/v1/farm/run -H "Authorization: Bearer <token>" \
+  -d '{"seed":42,"map_id":"default","max_steps":20}'
+# -> 200 {"summary": {"kills":15,"xp_gained":75,"currency_gained":3,"items_kept":[...]},
+#         "transcript": [{"tool":"start_map","input":{...},"result":{...}}, ...]}
+```
+
+No LLM is called here - there is no API key to configure and this endpoint
+makes no network calls. `internal/farming.Service` drives a hard-coded
+`ScriptedBrain` (start_map -> set_farm_target -> a few `engage_boss`
+batches -> vendor_items -> end_session) through a seeded `Resolver` that
+simulates outcomes coarsely from `shared/monsters.json`/`items.json`/
+`loot_tables.json` - same seed and tool-call sequence always produce the
+same transcript and summary. `internal/farming/tools.go` defines the five
+tools' JSON Schemas using the real `anthropic-sdk-go` types
+(`anthropic.ToolParam`/`ToolInputSchemaParam`), so a future real
+LLM-backed `AgentBrain` (today just a `NewAnthropicBrain(...)` stub
+returning "not implemented") passes `farming.ToolUnionParams()` straight
+into a `Messages.New` call with no schema rewrite - it would additionally
+need an API key, a model choice, its own loop-guard (an LLM agent isn't
+guaranteed to call `end_session`), and a decision on persisting runs (M6
+persists nothing). Full design and the coarse-simulation approximations in
+`docs/0014`.
+
 ### Shared data
 
 ```sh
@@ -217,4 +243,33 @@ make validate-data   # validates shared/*.json against shared/schemas/*
   kill switch every existing gdUnit scene test flips off so none of them
   depend on network timing. Design rationale, protocol shape and the sqlc
   table-naming pitfall in `docs/0013`.
-- **M6** — AI-farming groundwork: LLM tool-call schema + deterministic server-side map-run resolver reusing `shared/` data (LLM stubbed).
+- **M6 — AI-farming groundwork — DONE.** Deliberately partial: defines the
+  tool-call schema an LLM agent would use server-side and a deterministic
+  resolver that executes it, without ever calling a real model. Schema:
+  five tools (`start_map`, `set_farm_target`, `engage_boss`, `vendor_items`,
+  `end_session`) as `anthropic.ToolParam`/`ToolInputSchemaParam` values from
+  the official `github.com/anthropics/anthropic-sdk-go` SDK
+  (`server/internal/farming/tools.go` - `Definitions()`/`ToolUnionParams()`
+  are what a real `Messages.New` call would take unchanged), each with a
+  typed Go input/result pair. Seam: `AgentBrain` interface
+  (`server/internal/farming/brain.go`), `NextCall(ctx, state, transcript)`;
+  `ScriptedBrain` is the one stub implementation (a hard-coded
+  start_map -> set_farm_target -> N engage_boss batches -> vendor_items ->
+  end_session sequence, chosen purely by call count); `NewAnthropicBrain`
+  is a constructor stub that always returns "not implemented" - no network
+  calls or API keys anywhere in this package or its tests. Resolver
+  (`server/internal/farming/resolver.go`, alongside - not inside -
+  `internal/saves`, per ADR 0013): seeded `math/rand/v2` RNG, same seed +
+  same tool-call sequence always produces an identical transcript and
+  summary; coarse simulation over `shared/monsters.json`/`items.json`/
+  `loot_tables.json` (xp = kills × `xp_reward`, loot rolls mirror the
+  client's fixed draw order through rarity but skip affixes, vendor pricing
+  reuses `loot_tables.json`'s `affix_count_max`) - approximations spelled
+  out in `docs/0014`. `LoadData(dir)` loads the real `shared/` files,
+  path-configurable (`ARPG_SHARED_DATA_DIR`) so tests load the repo's own
+  data. HTTP: `POST /v1/farm/run {seed, map_id?, max_steps?}` behind the
+  existing `requireDeviceAuth` (no new auth work, per ADR 0013's guidance),
+  returns the run summary and full tool-call transcript; nothing is
+  persisted (future work). Design, approximations and what a real
+  LLM-backed runner needs next (API key config, model choice, its own
+  loop-guard, run persistence) in `docs/0014`.
