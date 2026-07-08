@@ -289,3 +289,30 @@ make validate-data   # validates shared/*.json against shared/schemas/*
   a quiet map, 1 + `"fallen_imp"` to preserve swept-seed kill sequences. Any
   new scene test booting `main.tscn` must do the same or expect 10 chasers.
   Design in `docs/0015`.
+- **G2 — Skill/spell system, starting choice of 3 — DONE.** 33 skills in
+  `shared/skills.json` (physical/fire/cold/lightning/poison, melee or ranged),
+  validated by `shared/schemas/skills.schema.json`. On a fresh game (no save),
+  `SkillChoiceUI` offers 3 distinct random skills — drawn deterministically by
+  `SkillCatalog.offer` from a fourth RNG stream (`master_seed + 3`, not
+  persisted — drawn from exactly once, before any save is possible) — and
+  pauses the whole tree (`get_tree().paused`) until one is picked; the panel's
+  own `process_mode` is `ALWAYS` so it alone keeps taking input. Domain:
+  `SkillCatalog.attack_config(skill)` turns a skill into the same
+  damage/range/crit/speed fields a weapon already knew how to override in
+  `Player._recompose_stats()` — equipment still composes on top unchanged.
+  Melee skills swing exactly like the old basic attack; ranged skills fire a
+  simple target-locked homing `Projectile` (`game/scenes/combat/`) that
+  resolves its hit through the same `DamageCalculator` on impact. Two new
+  stats live in `PlayerStats.compose`: `attack_speed` (melee) and `cast_speed`
+  (ranged) — G3's per-level bonus hooks in by adding another contribution
+  Dictionary to the same array equipment already feeds. Element mapping: the
+  seed list's "ice" skills carry `element: "cold"` (renamed in the data, no
+  translation layer); `poison` is a new resistance channel on
+  `monsters.json`/`monsters.schema.json` (schema_version 2), routed through
+  the existing generic mitigation model unchanged. Save: `schema_version` 2,
+  `player.skill_id` persists, `_migrate_v1_to_v2` defaults a pre-G2 save to
+  `quick_strike` (tuned to match the old hard-coded basic attack exactly, so a
+  returning save feels unchanged). Test knob: `starting_skill_id` on
+  `main.gd`, same idiom as the spawner's `forced_monster_id` — every scene
+  test booting `main.tscn` fresh must pin it or expect the choice screen to
+  pause the tree before anything else runs. Design in `docs/0016`.
