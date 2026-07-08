@@ -493,3 +493,35 @@ make validate-data   # validates shared/*.json against shared/schemas/*
   `schema_version` 4, `player.supports` (`Array[String]`, duplicates
   preserved), `_migrate_v3_to_v4` defaults a pre-G8 save to no supports
   owned. Design in `docs/0021`.
+- **G9 — Multi-skill slots: W at level 10, E at level 20 — DONE.** Three
+  independent skill slots — Q (slot 0, from the start), W (slot 1, unlocked
+  at level 10), E (slot 2, level 20) — each free-aim-casting its own skill
+  on its OWN cooldown; supports and gear still apply to every slot (G8 made
+  them global). `SkillSlots` (`game/domain/skill_slots.gd`) is the pure
+  unlock rule both `Player` and `main.gd` consult. `Player._recompose_stats`
+  now composes the same shared `contributions` (equipment + level + supports)
+  once per slot against that slot's own skill overlay; `Player.cast_at(point,
+  slot: int = 0)` (default 0 keeps every pre-G9 call site — Q's own handler,
+  every existing scene test — unchanged) fans into the same `_cast`/
+  `_resolve_hit_on` core, now slotted. Reaching level 10/20 offers a pick-1-
+  of-3 SKILL (reusing `SkillChoiceUI`/`SkillCatalog.offer`, which grew an
+  `excluding` param so the offer never repeats a skill already in another
+  slot) instead of a support — G8's reserved seam,
+  `main.gd._level_up_reward`'s `level == 10 or level == 20` branch, is the
+  only place edited to claim them. Reward queue (G8's `_pending_support_offers`)
+  generalized to `_pending_rewards`, a queue of EITHER `{"kind": "support"}`
+  or `{"kind": "skill", "slot": int}` entries in level-crossed order, so a
+  big XP grant mixing reward types still resolves one screen at a time.
+  Offers draw from a sixth RNG stream (`master_seed + 5`), persisted like
+  the support-offer stream (docs/0021's identical reasoning: drawn from after
+  saves exist). Retroactive-unlock policy: a save whose level already passed
+  10/20 without a pick (old save, or a save at `max_level` that will never
+  level up again) gets that pick queued immediately on load, not deferred to
+  a next level-up that might never come. HUD: `SkillSlotsHUD` — 3 small boxes
+  by the XP bar showing name/element or "Lv N" (locked), dimmed while
+  cooling — the one dumb-view in this project that polls every frame instead
+  of redrawing on a signal (no discrete "cooldown changed" event exists).
+  Save: `schema_version` 5, `player.secondary_skill_id`/`tertiary_skill_id`
+  (`""` = not yet picked), `_migrate_v4_to_v5` defaults a pre-G9 save to both
+  empty. `project.godot` gained `cast_secondary` (W, keycode 87)/`cast_tertiary`
+  (E, keycode 69). Design in `docs/0022`.
