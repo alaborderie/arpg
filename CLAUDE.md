@@ -97,7 +97,35 @@ framework). CI is the source of truth for game-side green.
 make run-server                    # listens on :8080 (ARPG_ADDR to override)
 curl localhost:8080/health         # {"status":"ok","service":"arpg-server"}
 make lint-server                   # gofmt check + go vet + golangci-lint
+make sqlc-generate                 # regenerate internal/store/sqlcgen after editing db/migrations or db/queries
 ```
+
+`run-server` opens (and migrates) a SQLite file at `ARPG_DB_PATH` (default
+`server/arpg.db`, gitignored). Running the game (`godot --path game`) against
+it exercises the M5 online layer end to end: device registration, and
+save upload/download on every `save_game` (F5)/boot. With no server running,
+the game plays exactly the same - see M5 below.
+
+### Online layer (M5): device auth + cloud save sync
+
+```sh
+curl -X POST localhost:8080/v1/auth/device -d '{"device_id":"..."}'
+# -> {"device_id": "...", "token": "..."}
+
+curl -X PUT localhost:8080/v1/save -H "Authorization: Bearer <token>" \
+  -d '{"schema_version":1,"saved_at_unix":1700000000,"payload":{...}}'
+# -> 200 {"schema_version":1,"saved_at_unix":1700000000} or 409 (stale, returns the stored timestamp)
+
+curl localhost:8080/v1/save -H "Authorization: Bearer <token>"
+# -> 200 {"schema_version":1,"saved_at_unix":...,"payload":{...}} or 404 (nothing stored yet)
+```
+
+`payload` is the client's save envelope (ADR 0012), carried opaquely: the
+server compares `saved_at_unix` for last-write-wins and never parses the
+blob. See `docs/0013` for the auth-stub shape, the LWW protocol, and why the
+client's sync adapter (`game/scenes/sync/sync_service.gd`,
+`game/data/sync_store.gd`/`sync_config.gd`) is safe to leave enabled with no
+server running.
 
 ### Shared data
 
@@ -170,5 +198,23 @@ make validate-data   # validates shared/*.json against shared/schemas/*
   happens automatically at boot when a save exists and `rng_seed` wasn't pinned
   (so seeded tests are never overridden by a stray save). Design rationale,
   envelope shape and the RNG-string bug in `docs/0012`.
-- **M5** — device auth stub + cloud save sync; client fully functional when server is unreachable.
+- **M5 — Online layer — DONE.** Device auth stub (`POST /v1/auth/device`:
+  client-generated device id in, opaque bearer token out; idempotent
+  re-registration) and cloud save sync (`PUT`/`GET /v1/save`: last-write-wins
+  by the save envelope's `saved_at_unix`, payload stored and returned opaquely
+  - ADR 0012's blob, never parsed server-side). Server: SQLite via sqlc
+  (`server/internal/store`, migration `0002` adds the token + LWW column and
+  renames `saves` to `save_records` - see docs/0013 for why), a tiny embedded
+  migration runner, `internal/auth`/`internal/saves` services behind a
+  `requireDeviceAuth` middleware seam handlers never bypass, table-driven
+  tests spinning a real temp SQLite DB (happy path, both LWW-conflict
+  directions, wrong/missing token). Client: `SyncService`
+  (`game/scenes/sync/`, a `Node` adapter - `HTTPRequest` needs the scene tree)
+  registers once, checks for a newer save at boot and applies it live
+  (silent last-write-wins), uploads after every local save without blocking
+  it; every network failure is logged with `print` (never push_error/
+  push_warning) and swallowed, short request timeout, `SyncConfig.enabled`
+  kill switch every existing gdUnit scene test flips off so none of them
+  depend on network timing. Design rationale, protocol shape and the sqlc
+  table-naming pitfall in `docs/0013`.
 - **M6** — AI-farming groundwork: LLM tool-call schema + deterministic server-side map-run resolver reusing `shared/` data (LLM stubbed).
