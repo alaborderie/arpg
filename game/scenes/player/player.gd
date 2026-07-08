@@ -11,6 +11,12 @@ extends CharacterBody3D
 ## whenever equipment changes. Everything downstream (attack profile, defence,
 ## speeds) reads `_config`, so gear changes numbers without forking any code path.
 ##
+## G2 adds [method set_skill]: the chosen `shared/skills.json` entry replaces
+## `_base_config`'s damage/range/crit/speed in that same recompose funnel, so
+## equipment still composes on top unchanged. Melee skills swing exactly like
+## the old basic attack; ranged skills fire a [Projectile] instead of resolving
+## the hit instantly (see _try_attack/_fire_projectile). docs/0016.
+##
 ## Godot notes: [CharacterBody3D] is the engine's kinematic body — it moves by
 ## `move_and_slide()` from a `velocity` we set each physics tick, rather than by
 ## forces. The child [NavigationAgent3D] asks the NavigationServer for a path across
@@ -39,6 +45,11 @@ const FACING_EPSILON: float = 0.0001
 ## How close (metres, between origins) the player must stand to grab a drop.
 ## Interaction feel, not balance — same layer as the swing-timing choice (ADR 0010).
 const PICKUP_RANGE: float = 1.8
+## Height above the player's origin a fired projectile spawns at — roughly
+## chest/weapon height, purely cosmetic.
+const PROJECTILE_SPAWN_HEIGHT: float = 1.0
+
+const PROJECTILE_SCENE: PackedScene = preload("res://scenes/combat/projectile.tscn")
 
 ## Emitted whenever the bag or the equipped slots change (pickup, equip, unequip).
 signal inventory_changed
@@ -47,6 +58,13 @@ signal inventory_changed
 var _config: Dictionary = {}
 ## The pristine `player` object of `shared/player.json`.
 var _base_config: Dictionary = {}
+## The active skill (G2, `shared/skills.json` entry) — replaces the unarmed
+## baseline in _recompose_stats. Empty until main.gd calls [method set_skill]
+## (the pre-pick window, while the choice screen has the tree paused).
+var _skill: Dictionary = {}
+## Cached from `_skill.kind` so _recompose_stats/_try_attack don't re-parse it
+## every call. "melee" until a skill is set.
+var _skill_kind: String = "melee"
 ## Item base definitions from `shared/items.json`, indexed by id.
 var _item_bases_by_id: Dictionary = {}
 var _combat_constants: Dictionary = {}
@@ -145,6 +163,24 @@ func inventory() -> Inventory:
 	return _inventory
 
 
+## Sets the active skill (G2) and recomposes stats so it takes effect
+## immediately — called once by main.gd after a fresh pick, a save load, or a
+## test's `starting_skill_id` pin. [param skill] is a `shared/skills.json` entry
+## (see [SkillCatalog]); an empty Dictionary is a no-op safety net for a bad id.
+func set_skill(skill: Dictionary) -> void:
+	if skill.is_empty():
+		return
+	_skill = skill
+	_skill_kind = String(skill.get("kind", "melee"))
+	_recompose_stats()
+
+
+## The active skill's id, or "" before one has been set. Read by main.gd to
+## persist the choice (M4/G2, [SaveData]).
+func skill_id() -> String:
+	return String(_skill.get("id", ""))
+
+
 ## Restores health, position, bag and equipped items from a migrated save
 ## envelope (M4 — see [SaveData] for the shape). Called by main once combat is
 ## wired up; stats are recomposed at the end so restored gear is reflected
@@ -176,16 +212,29 @@ func unequip_slot(slot: String) -> void:
 
 ## Rebuilds the effective stats from base data + equipped items, and refreshes
 ## everything derived from them. The one funnel through which gear acts (ADR 0011).
+##
+## G2 (docs/0016): the active skill's damage/range/crit/speed replace the same
+## fields `_base_config` (the unarmed `shared/player.json` baseline) used to
+## carry — equipment then composes on top exactly as before, including a
+## weapon's implicit damage still overriding the skill's own damage number if
+## one is equipped (the same "gear beats unarmed" precedent this pipeline
+## already had). Melee skills read back `attack_speed`; ranged skills read
+## `cast_speed` — see [PlayerStats.compose] for where both live.
 func _recompose_stats() -> void:
+	var skill_base: Dictionary = _base_config.duplicate(true)
+	if not _skill.is_empty():
+		skill_base.merge(SkillCatalog.attack_config(_skill), true)
+
 	var contributions: Array[Dictionary] = []
 	for item: Dictionary in _inventory.equipped_items():
 		var base: Dictionary = _item_bases_by_id.get(String(item.get("base_id", "")), {})
 		contributions.append(ItemStats.contribution(item, base))
-	_config = PlayerStats.compose(_base_config, contributions)
+	_config = PlayerStats.compose(skill_base, contributions)
 	_move_speed = float(_config.get("move_speed", DEFAULT_MOVE_SPEED))
 	_attack_range = float(_config.get("attack_range", DEFAULT_ATTACK_RANGE))
+	var speed_key: String = "cast_speed" if _skill_kind == "ranged" else "attack_speed"
 	_seconds_between_attacks = 1.0 / maxf(
-		float(_config.get("attack_speed", DEFAULT_ATTACK_SPEED)), 0.01
+		float(_config.get(speed_key, DEFAULT_ATTACK_SPEED)), 0.01
 	)
 	_attack = CombatProfiles.attack_from_data(_config)
 
@@ -282,9 +331,23 @@ func _try_attack() -> void:
 	if _calculator == null or _attack_cooldown > 0.0:
 		return
 	_attack_cooldown = _seconds_between_attacks
+	if _skill_kind == "ranged":
+		_fire_projectile()
+		return
 	var defense: DefenseProfile = _attack_target.defense_profile(_attack.damage_type)
 	var result: DamageResult = _calculator.calculate_hit(_attack, defense)
 	_attack_target.take_hit(result)
+
+
+## Ranged-skill attack (G2, docs/0016): a simple target-locked homing
+## [Projectile] instead of an instant hit — it resolves the actual damage
+## through the same [DamageCalculator]/[DefenseProfile] path on impact, so
+## melee and ranged skills share every rule except when the hit lands.
+func _fire_projectile() -> void:
+	var projectile: Projectile = PROJECTILE_SCENE.instantiate() as Projectile
+	get_parent().add_child(projectile)
+	projectile.global_position = global_position + Vector3.UP * PROJECTILE_SPAWN_HEIGHT
+	projectile.setup(_attack_target, _attack, _calculator)
 
 
 ## Minimal M2 death: input orders are ignored and the body goes dark. A real

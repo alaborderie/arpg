@@ -15,6 +15,13 @@ extends Node3D
 ## monster picking raycasts the physics space, and
 ## [PhysicsDirectSpaceState3D] may only be queried safely during physics
 ## processing (see docs/0010-click-targeting-and-combat-wiring.md).
+##
+## G2 (docs/0016): a fresh game (no save, and no `starting_skill_id` test pin)
+## shows [SkillChoiceUI] and pauses the whole tree (`get_tree().paused = true`)
+## until a skill is picked — the panel's own `process_mode` is ALWAYS, so it
+## keeps taking input while everything with the default PAUSABLE mode (this
+## node included) is frozen. A loaded save or a pinned `starting_skill_id`
+## skips the screen entirely and applies the skill immediately.
 
 ## The infinite plane clicks are projected onto — the ground sits at y = 0. Picking
 ## against a mathematical plane needs no colliders and works even when the click is
@@ -33,6 +40,10 @@ const PICK_MASK: int = MONSTER_PICK_MASK | DROP_PICK_MASK
 const PICK_RAY_LENGTH: float = 200.0
 
 const GROUND_DROP_SCENE: PackedScene = preload("res://scenes/loot/ground_drop.tscn")
+## Fallback if a skill id (a save's, or a test's `starting_skill_id`) doesn't
+## resolve to anything in shared/skills.json — same "degrade instead of crash"
+## convention BalanceData uses. Matches SaveData.DEFAULT_SKILL_ID.
+const FALLBACK_SKILL_ID: String = "quick_strike"
 
 ## Master seed for the scene's RNG streams. 0 (the default) means "randomize, or
 ## load the existing save if one is on disk" (see _ready); integration tests set
@@ -40,6 +51,12 @@ const GROUND_DROP_SCENE: PackedScene = preload("res://scenes/loot/ground_drop.ts
 ## reproducible and, in doing so, opt out of the load-at-boot check — a test that
 ## wants a specific seed should never have a stray save silently override it.
 @export var rng_seed: int = 0
+
+## G2 test knob (docs/0016), same idiom as MonsterSpawner's `forced_monster_id`:
+## non-empty skips the skill-choice screen entirely and applies this skill
+## immediately, so scene tests get a deterministic attack without driving a UI
+## pick. Ignored when a save is loaded (the save's own skill_id wins).
+@export var starting_skill_id: String = ""
 
 ## One combat RNG stream and one calculator for the whole scene (ADR 0004): every
 ## hit, whoever swings, draws from the same reproducible sequence.
@@ -56,6 +73,12 @@ var _loot_roller: LootRoller
 ## world state, same call ADR 0012 already made for which specific monsters
 ## are alive.
 var _spawn_rng: RngService
+## The skill-offer stream (G2, docs/0016): a fourth dedicated stream, drawn from
+## exactly once per fresh game (before any pick is possible, nothing can be
+## saved yet) — deliberately not part of the save envelope, the same call ADR
+## 0015 made for the spawn stream.
+var _skill_offer_rng: RngService
+var _skill_catalog: SkillCatalog
 var _pending_click: Vector2 = Vector2.ZERO
 var _has_pending_click: bool = false
 ## The seed this run's RNG streams derive from; kept around so _save_game can
@@ -72,6 +95,7 @@ var _monsters_killed: int = 0
 @onready var _drops: Node3D = $Drops
 @onready var _spawner: MonsterSpawner = $MonsterSpawner
 @onready var _inventory_panel: InventoryPanel = $InventoryPanel
+@onready var _skill_choice_ui: SkillChoiceUI = $SkillChoiceUI
 @onready var _save_button: Button = $SaveUI/SaveButton
 ## Cloud-save sync adapter (M5, ADR 0013). `SyncConfig.enabled = false` in a
 ## test's setup opts a scene instance out entirely, the same idiom pinning
@@ -93,6 +117,7 @@ func _ready() -> void:
 	_rng = RngService.new(_master_seed)
 	_loot_rng = RngService.new(_master_seed + 1)
 	_spawn_rng = RngService.new(_master_seed + 2)
+	_skill_offer_rng = RngService.new(_master_seed + 3)
 	if not loaded.is_empty():
 		_rng.set_state(int(loaded.get("combat_rng_state", _rng.get_state())))
 		_loot_rng.set_state(int(loaded.get("loot_rng_state", _loot_rng.get_state())))
@@ -100,12 +125,18 @@ func _ready() -> void:
 	_loot_roller = LootRoller.new(
 		BalanceData.load_loot_tables(), BalanceData.load_items(), _loot_rng
 	)
+	_skill_catalog = SkillCatalog.new(BalanceData.load_skills())
 	_player.setup_combat(_calculator)
 	_inventory_panel.setup(_player)
 	_spawner.monster_spawned.connect(_on_monster_spawned)
 	_spawner.setup(_player, _monsters, _drops, _calculator, _spawn_rng)
+	_skill_choice_ui.skill_chosen.connect(_on_skill_chosen)
 	if not loaded.is_empty():
 		_apply_loaded_save(loaded)
+	elif starting_skill_id != "":
+		_apply_skill(starting_skill_id)
+	else:
+		_offer_skill_choice()
 	_save_button.pressed.connect(_save_game)
 	_sync_service.remote_save_applied.connect(_on_remote_save_applied)
 
@@ -197,6 +228,7 @@ func _save_game() -> void:
 		_player.global_position,
 		_player.inventory().bag(),
 		_player.inventory().equipped_by_slot(),
+		_player.skill_id(),
 		_monsters_killed,
 		int(Time.get_unix_time_from_system())
 	)
@@ -205,14 +237,42 @@ func _save_game() -> void:
 
 
 ## Applies a migrated save envelope to the live scene: player health/position/
-## inventory/equipment and the progress counter. Shared by the load-at-boot
-## path in _ready and by _on_remote_save_applied (M5), so a newer save that
-## arrives from the server after boot is applied the same way a local save
-## would have been.
+## inventory/equipment/skill and the progress counter. Shared by the
+## load-at-boot path in _ready and by _on_remote_save_applied (M5), so a newer
+## save that arrives from the server after boot is applied the same way a local
+## save would have been. A loaded save always carries a skill_id (migration
+## guarantees it, docs/0016), so this never shows the choice screen.
 func _apply_loaded_save(loaded: Dictionary) -> void:
 	_player.load_state(loaded)
+	_apply_skill(SaveData.skill_id_from_player(loaded))
 	var progress: Dictionary = loaded.get("progress", {})
 	_monsters_killed = int(progress.get("monsters_killed", 0))
+
+
+## Draws a deterministic 3-skill offer (G2, docs/0016) from the dedicated
+## skill-offer RNG stream and shows the choice screen, freezing the world
+## (player, monsters, spawner all stop physics-processing under a paused tree)
+## until [method _on_skill_chosen] fires.
+func _offer_skill_choice() -> void:
+	var offer: Array[Dictionary] = _skill_catalog.offer(_skill_offer_rng, 3)
+	_skill_choice_ui.setup(offer)
+	get_tree().paused = true
+
+
+func _on_skill_chosen(skill_id: String) -> void:
+	get_tree().paused = false
+	_apply_skill(skill_id)
+
+
+## Resolves [param skill_id] against the catalog and applies it to the player,
+## falling back to FALLBACK_SKILL_ID for an id that doesn't resolve (a stale
+## save from a renamed skill, or a typo'd test knob) — degrade, don't crash,
+## the same convention BalanceData's loaders use.
+func _apply_skill(skill_id: String) -> void:
+	var skill: Dictionary = _skill_catalog.skill(skill_id)
+	if skill.is_empty():
+		skill = _skill_catalog.skill(FALLBACK_SKILL_ID)
+	_player.set_skill(skill)
 
 
 ## SyncService found a save on the server newer than what boot loaded (or than

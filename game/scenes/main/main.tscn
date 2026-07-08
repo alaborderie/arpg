@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://scenes/main/main.gd" id="1_main"]
 [ext_resource type="PackedScene" path="res://scenes/world/test_map.tscn" id="2_test_map"]
@@ -7,6 +7,7 @@
 [ext_resource type="PackedScene" path="res://scenes/ui/inventory_panel.tscn" id="5_inventory_panel"]
 [ext_resource type="Script" path="res://scenes/sync/sync_service.gd" id="6_sync_service"]
 [ext_resource type="Script" path="res://scenes/world/monster_spawner.gd" id="7_monster_spawner"]
+[ext_resource type="PackedScene" path="res://scenes/ui/skill_choice_ui.tscn" id="8_skill_choice_ui"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
@@ -29,6 +30,8 @@ target = NodePath("../Player")
 shadow_enabled = true
 
 [node name="InventoryPanel" parent="." instance=ExtResource("5_inventory_panel")]
+
+[node name="SkillChoiceUI" parent="." instance=ExtResource("8_skill_choice_ui")]
 
 [node name="SyncService" type="Node" parent="."]
 script = ExtResource("6_sync_service")

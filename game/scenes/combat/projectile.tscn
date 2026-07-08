@@ -1,0 +1,13 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scenes/combat/projectile.gd" id="1_projectile"]
+
+[sub_resource type="SphereMesh" id="SphereMesh_body"]
+radius = 0.18
+height = 0.36
+
+[node name="Projectile" type="Node3D"]
+script = ExtResource("1_projectile")
+
+[node name="Body" type="MeshInstance3D" parent="."]
+mesh = SubResource("SphereMesh_body")

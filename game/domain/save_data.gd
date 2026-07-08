@@ -17,6 +17,7 @@ extends RefCounted
 ##       "position": {"x": float, "y": float, "z": float},
 ##       "bag": Array[Dictionary],       # Inventory.bag(), pickup order
 ##       "equipped": Dictionary,         # slot name -> item Dictionary
+##       "skill_id": String,             # G2: the chosen skill (shared/skills.json id)
 ##     },
 ##     "progress": {
 ##       "monsters_killed": int,
@@ -31,7 +32,10 @@ extends RefCounted
 ## schema_version 1 from day one, so there is no real "v0" save in the wild, but
 ## the step demonstrates the mechanism every future migration must follow (fill
 ## in defaults for fields the older shape lacked, never fail on missing data) and
-## is what the migration tests exercise.
+## is what the migration tests exercise. `_migrate_v1_to_v2` is G2's real, first
+## non-scaffold step: a pre-G2 save has no `player.skill_id` (skills didn't
+## exist), so it defaults to `"quick_strike"` — a plain, no-frills melee skill
+## that best matches what "the basic attack" used to mean (docs/0016).
 ##
 ## RNG state as a String, not a number: [RandomNumberGenerator]'s `state` is a
 ## full 64-bit value, and Godot's JSON only has a double-precision number type
@@ -40,7 +44,10 @@ extends RefCounted
 ## the one that was actually saved. Formatting it as a decimal string sidesteps
 ## JSON's number type entirely; `int(String)` parses it back exactly.
 
-const CURRENT_SCHEMA_VERSION: int = 1
+const CURRENT_SCHEMA_VERSION: int = 2
+## The skill a pre-G2 save (or any save missing `skill_id`) migrates to. See
+## docs/0016 for why this particular skill.
+const DEFAULT_SKILL_ID: String = "quick_strike"
 
 
 ## Builds a fresh envelope at CURRENT_SCHEMA_VERSION from raw scene state. Callers
@@ -53,6 +60,7 @@ static func build(
 	player_position: Vector3,
 	bag: Array[Dictionary],
 	equipped: Dictionary,
+	skill_id: String,
 	monsters_killed: int,
 	saved_at_unix: int
 ) -> Dictionary:
@@ -67,6 +75,7 @@ static func build(
 			"position": _vector3_to_dict(player_position),
 			"bag": bag.duplicate(true),
 			"equipped": equipped.duplicate(true),
+			"skill_id": skill_id,
 		},
 		"progress": {
 			"monsters_killed": monsters_killed,
@@ -98,6 +107,9 @@ static func migrate(raw: Dictionary) -> Dictionary:
 			0:
 				data = _migrate_v0_to_v1(data)
 				version = 1
+			1:
+				data = _migrate_v1_to_v2(data)
+				version = 2
 			_:
 				push_error("SaveData: no migration path from schema_version %d" % version)
 				return {}
@@ -126,6 +138,16 @@ static func bag_from_player(data: Dictionary) -> Array[Dictionary]:
 static func equipped_from_player(data: Dictionary) -> Dictionary:
 	var player: Dictionary = data.get("player", {})
 	return (player.get("equipped", {}) as Dictionary).duplicate(true)
+
+
+## The player's saved skill id (G2, `shared/skills.json`). [param data] is a
+## migrated envelope — always present at CURRENT_SCHEMA_VERSION thanks to
+## `_migrate_v1_to_v2`, but this still falls back to DEFAULT_SKILL_ID so a
+## caller handed a raw/unmigrated Dictionary never reads an empty skill id.
+static func skill_id_from_player(data: Dictionary) -> String:
+	var player: Dictionary = data.get("player", {})
+	var skill_id: String = String(player.get("skill_id", ""))
+	return skill_id if not skill_id.is_empty() else DEFAULT_SKILL_ID
 
 
 static func _vector3_to_dict(position: Vector3) -> Dictionary:
@@ -157,5 +179,20 @@ static func _migrate_v0_to_v1(data: Dictionary) -> Dictionary:
 		player["bag"] = []
 	if not player.has("equipped"):
 		player["equipped"] = {}
+	migrated["player"] = player
+	return migrated
+
+
+## G2 (docs/0016): a pre-G2 save has no `player.skill_id` — skills didn't exist
+## yet, every player used the same hard-coded basic attack. Defaulting to
+## DEFAULT_SKILL_ID ("quick_strike", tuned to match that old basic attack
+## exactly — see shared/skills.json) means a returning save loads into
+## something numerically indistinguishable from what the player already had.
+static func _migrate_v1_to_v2(data: Dictionary) -> Dictionary:
+	var migrated: Dictionary = data.duplicate(true)
+	migrated["schema_version"] = 2
+	var player: Dictionary = (migrated.get("player", {}) as Dictionary).duplicate(true)
+	if not player.has("skill_id") or String(player.get("skill_id", "")).is_empty():
+		player["skill_id"] = DEFAULT_SKILL_ID
 	migrated["player"] = player
 	return migrated
