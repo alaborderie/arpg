@@ -39,6 +39,18 @@ static func spawn_damage_number(parent: Node, world_position: Vector3, result: D
 	tween.chain().tween_callback(label.queue_free)
 
 
+## Flashes every mesh in [param meshes] white, same as [method flash] called once
+## per mesh. G5's low-poly character/monster bodies are several stacked
+## [MeshInstance3D] parts (legs, torso, head, ...) rather than one capsule, so a
+## hit needs to flash the whole silhouette at once — each part still tracks and
+## restores its own original material independently, so this is exactly
+## equivalent to (and no more expensive than) calling [method flash] in a loop.
+static func flash_all(meshes: Array) -> void:
+	for mesh: Variant in meshes:
+		if mesh is MeshInstance3D:
+			flash(mesh as MeshInstance3D)
+
+
 ## Flashes [param mesh] white for [constant FLASH_SECONDS], then restores whatever
 ## material override it had. Reentrant: a flash landing during a flash is a no-op
 ## (the running one restores the true original).

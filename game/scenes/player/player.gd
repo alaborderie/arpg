@@ -121,7 +121,11 @@ var _dead: bool = false
 var _health_bar: HealthBar3D
 
 @onready var _agent: NavigationAgent3D = $NavigationAgent3D
-@onready var _body: MeshInstance3D = $Body
+## G5 (issue #12): the low-poly body is several stacked box parts (legs,
+## torso, arms, head) under the "Body" Node3D rather than one capsule mesh —
+## gathered once here so hit-flash and the death tint can apply to every part
+## at once (see CombatFx.flash_all, _die).
+@onready var _body_parts: Array[MeshInstance3D] = _collect_body_parts()
 
 
 func _ready() -> void:
@@ -357,7 +361,7 @@ func take_hit(result: DamageResult) -> void:
 	if _health.is_dead():
 		_die()
 	else:
-		CombatFx.flash(_body)
+		CombatFx.flash_all(_body_parts)
 	_update_health_bar()
 
 
@@ -489,7 +493,10 @@ func _fire_projectile() -> void:
 
 
 ## Minimal M2 death: input orders are ignored and the body goes dark. A real
-## death animation/respawn flow is future work.
+## death animation/respawn flow is future work. G5: one shared corpse material
+## applied to every body part (a [Material] resource can be referenced by
+## several [MeshInstance3D]s at once) so the whole silhouette tints, not just
+## one piece of it.
 func _die() -> void:
 	_dead = true
 	_attack_target = null
@@ -497,4 +504,16 @@ func _die() -> void:
 	var corpse_material: StandardMaterial3D = StandardMaterial3D.new()
 	corpse_material.albedo_color = Color(0.25, 0.24, 0.23)
 	corpse_material.roughness = 1.0
-	_body.material_override = corpse_material
+	for part: MeshInstance3D in _body_parts:
+		part.material_override = corpse_material
+
+
+## Gathers every [MeshInstance3D] under the "Body" node (see player.tscn) once
+## at [member _body_parts] init — the low-poly body is several stacked box
+## parts rather than one mesh (G5, issue #12).
+func _collect_body_parts() -> Array[MeshInstance3D]:
+	var parts: Array[MeshInstance3D] = []
+	for child: Node in $Body.get_children():
+		if child is MeshInstance3D:
+			parts.append(child as MeshInstance3D)
+	return parts

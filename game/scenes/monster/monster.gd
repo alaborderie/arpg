@@ -23,10 +23,14 @@ signal health_changed
 
 ## Squared direction length under which we skip rotating (avoids look_at jitter).
 const FACING_EPSILON: float = 0.0001
-## Height above the monster's origin the health bar floats at — just clear of
-## the capsule's head (the capsule is 1.2 m tall centered at y=0.6, so its top
-## sits around y=1.2).
-const HEALTH_BAR_HEIGHT: float = 1.6
+## Height above the monster's origin the health bar floats at. G5 (issue #12)
+## retuned this from 1.6: the two low-poly silhouettes built by
+## [method _build_visual] are no longer identical capsules — fallen_imp tops
+## out around y=1.2 but cinder_wraith's hood reaches ~y=1.49 — so this clears
+## the taller of the two with the same ~0.3 m margin the old capsule had.
+## (Collision stays the plain 1.2 m capsule below for both ids - visual swap
+## only, per the ticket.)
+const HEALTH_BAR_HEIGHT: float = 1.8
 
 var _data: Dictionary = {}
 var _combat_constants: Dictionary = {}
@@ -43,9 +47,18 @@ var _attack_cooldown: float = 0.0
 ## _ready, before [method setup] runs, so a red default full bar exists the
 ## instant the monster is added to the tree.
 var _health_bar: HealthBar3D
+## G5 (issue #12): the low-poly body's box parts (legs, torso, head, ...),
+## built by [method _build_visual] once [method setup] knows `monster_id`.
+## Populated by [method _add_box_part]; [method take_hit] flashes all of them
+## together (CombatFx.flash_all) so a hit reads across the whole silhouette,
+## not just one piece of it.
+var _body_parts: Array[MeshInstance3D] = []
 
 @onready var _agent: NavigationAgent3D = $NavigationAgent3D
-@onready var _body: MeshInstance3D = $Body
+## Empty container the visual box parts are added under (see monster.tscn's
+## doc-comment and [method _build_visual]) — a plain Node3D, not a mesh,
+## because the silhouette itself is chosen at runtime by monster id.
+@onready var _body: Node3D = $Body
 
 
 func _ready() -> void:
@@ -73,6 +86,7 @@ func setup(
 	_move_speed = float(data.get("move_speed", 0.0))
 	_attack_range = float(data.get("attack_range", 1.0))
 	_seconds_between_attacks = 1.0 / maxf(float(data.get("attack_speed", 1.0)), 0.01)
+	_build_visual(String(data.get("id", "")))
 	_update_health_bar()
 
 
@@ -114,7 +128,7 @@ func take_hit(result: DamageResult) -> void:
 		died.emit(self)
 		queue_free()
 	else:
-		CombatFx.flash(_body)
+		CombatFx.flash_all(_body_parts)
 		_update_health_bar()
 
 
@@ -174,3 +188,81 @@ func _try_attack() -> void:
 	var defense: DefenseProfile = _target.defense_profile(_attack.damage_type)
 	var result: DamageResult = _calculator.calculate_hit(_attack, defense)
 	_target.take_hit(result)
+
+
+## G5 (issue #12): builds this monster's low-poly silhouette under
+## [member _body] from stacked box parts, chosen by [param id] so
+## fallen_imp and cinder_wraith read as visually distinct creatures even
+## though they share the same capsule collision (visual swap only, per the
+## ticket). Falls back to the fallen_imp shape for any id this hasn't been
+## taught yet, so a future monsters.json entry never ends up invisible.
+func _build_visual(id: String) -> void:
+	match id:
+		"cinder_wraith":
+			_build_cinder_wraith()
+		_:
+			_build_fallen_imp()
+
+
+## Small hunched imp: solid, low, four box parts plus a pair of angled horns
+## and a snout poking forward along -Z (the facing indicator every combatant
+## needs — see player.tscn's "Nose"). Tops out around y=1.22, close to the
+## old shared capsule mesh's 1.2 m height. Warm solid-red palette.
+func _build_fallen_imp() -> void:
+	var hide_color: Color = Color(0.63, 0.22, 0.2)
+	var dark_color: Color = Color(0.35, 0.15, 0.12)
+	_add_box_part(Vector3(0.32, 0.35, 0.3), Vector3(0, 0.175, 0), dark_color)
+	_add_box_part(Vector3(0.44, 0.4, 0.36), Vector3(0, 0.55, 0), hide_color)
+	_add_box_part(Vector3(0.26, 0.26, 0.26), Vector3(0, 0.88, 0), Color(0.5, 0.18, 0.16))
+	_add_box_part(Vector3(0.14, 0.14, 0.24), Vector3(0, 0.85, -0.2), Color(0.2, 0.08, 0.08))
+	_add_box_part(
+		Vector3(0.06, 0.22, 0.06), Vector3(-0.09, 1.11, 0.02), Color(0.15, 0.05, 0.05), Vector3(0, 0, -20)
+	)
+	_add_box_part(
+		Vector3(0.06, 0.22, 0.06), Vector3(0.09, 1.11, 0.02), Color(0.15, 0.05, 0.05), Vector3(0, 0, 20)
+	)
+
+
+## Tall, thin, hooded wraith: a wide skirt base, a slender floating cloak,
+## trailing tendril arms, and a bright ember-orange glow at the front of the
+## hood doubling as the facing indicator (-Z, same convention as the imp's
+## snout). Deliberately taller (~1.49 m) and much narrower (0.3 m cloak vs
+## the imp's 0.44 m torso) with a cold dark-purple/charcoal palette against
+## the imp's warm solid red — distinct in silhouette *and* color, per the
+## ticket's requirement that the two monster types read apart.
+func _build_cinder_wraith() -> void:
+	var cloak_color: Color = Color(0.22, 0.18, 0.22)
+	var trim_color: Color = Color(0.2, 0.08, 0.05)
+	var glow_color: Color = Color(1.0, 0.45, 0.1)
+	_add_box_part(Vector3(0.55, 0.15, 0.5), Vector3(0, 0.075, 0), trim_color)
+	_add_box_part(Vector3(0.3, 1.1, 0.26), Vector3(0, 0.7, 0), cloak_color)
+	_add_box_part(Vector3(0.07, 0.6, 0.07), Vector3(-0.2, 0.7, 0), cloak_color)
+	_add_box_part(Vector3(0.07, 0.6, 0.07), Vector3(0.2, 0.7, 0), cloak_color)
+	_add_box_part(Vector3(0.24, 0.24, 0.24), Vector3(0, 1.37, 0), Color(0.15, 0.12, 0.15))
+	_add_box_part(Vector3(0.1, 0.08, 0.05), Vector3(0, 1.37, -0.135), glow_color)
+
+
+## Instances a flat-shaded [BoxMesh] part (matching every other mesh in the
+## project — BoxMesh's per-face normals are already hard, no smoothing group),
+## positions/tints it, and appends the resulting [MeshInstance3D] to
+## [member _body_parts] so [method take_hit] can flash the whole silhouette at
+## once. `rotation_degrees` defaults to no rotation — only the imp's angled
+## horns need it.
+func _add_box_part(
+	size: Vector3,
+	offset: Vector3,
+	color: Color,
+	rotation_degrees: Vector3 = Vector3.ZERO
+) -> void:
+	var mesh: BoxMesh = BoxMesh.new()
+	mesh.size = size
+	var material: StandardMaterial3D = StandardMaterial3D.new()
+	material.albedo_color = color
+	material.roughness = 1.0
+	var instance: MeshInstance3D = MeshInstance3D.new()
+	instance.mesh = mesh
+	instance.material_override = material
+	instance.position = offset
+	instance.rotation_degrees = rotation_degrees
+	_body.add_child(instance)
+	_body_parts.append(instance)
