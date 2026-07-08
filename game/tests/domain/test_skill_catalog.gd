@@ -92,6 +92,36 @@ func test_offer_never_exceeds_the_catalog_size() -> void:
 	assert_int(offer.size()).is_equal(4)
 
 
+## G9 (docs/0022): a level-10/20 slot offer excludes skills already occupying
+## another slot — [param excluding] filters the pool BEFORE the random draw.
+func test_offer_excludes_the_given_ids() -> void:
+	var catalog: SkillCatalog = SkillCatalog.new(SKILLS_DATA)
+	var excluding: Array[String] = ["quick_strike", "fireball"]
+	var offer: Array[Dictionary] = catalog.offer(RngService.new(1), 2, excluding)
+	assert_int(offer.size()).is_equal(2)
+	for skill: Dictionary in offer:
+		assert_bool(excluding.has(String(skill.get("id", "")))).is_false()
+
+
+## Excluding everything but one leaves that one as the only possible draw
+## (deterministic, not just "usually excluded") — proves the exclusion clamps
+## the count down along with the pool rather than erroring.
+func test_offer_excluding_all_but_one_id_returns_only_that_one() -> void:
+	var catalog: SkillCatalog = SkillCatalog.new(SKILLS_DATA)
+	var excluding: Array[String] = ["quick_strike", "fireball", "venom_slash"]
+	var offer: Array[Dictionary] = catalog.offer(RngService.new(7), 3, excluding)
+	assert_int(offer.size()).is_equal(1)
+	assert_str(String(offer[0].get("id", ""))).is_equal("icebolt")
+
+
+## Backward compatibility: the default (no [param excluding] argument) behaves
+## exactly like G2's original call site, which never excluded anything.
+func test_offer_with_no_excluding_argument_draws_from_the_full_pool() -> void:
+	var catalog: SkillCatalog = SkillCatalog.new(SKILLS_DATA)
+	var offer: Array[Dictionary] = catalog.offer(RngService.new(1), 4)
+	assert_int(offer.size()).is_equal(4)
+
+
 func test_attack_config_maps_melee_skill_to_attack_speed() -> void:
 	var config: Dictionary = SkillCatalog.attack_config(SKILLS_DATA.get("skills")[0])
 	var damage: Dictionary = config.get("damage", {})
