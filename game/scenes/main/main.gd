@@ -34,7 +34,20 @@ extends Node3D
 ## `get_tree().paused` idiom as the G2 skill-choice screen) — except for
 ## levels 10/20, reserved for G9's own skill-unlock UI. A big XP grant
 ## crossing several eligible levels queues one offer per level rather than
-## stacking screens (`_pending_support_offers`).
+## stacking screens (`_pending_rewards`).
+##
+## G9 (issue #16, docs/0022): [method _level_up_reward] now claims levels
+## 10/20 for real — a pick-1-of-3 SKILL offer (reusing [SkillChoiceUI]/
+## [SkillCatalog.offer], excluding skills already occupying another slot) that
+## binds to W (slot 1) or E (slot 2), drawn from its own dedicated
+## `master_seed + 5` stream (persisted, like the support-offer stream, since it
+## keeps drawing after saves exist). `_pending_rewards` is now a queue of
+## EITHER reward kind (`{"kind": "support"|"skill", ...}`), so a big XP grant
+## mixing level types still resolves one screen at a time, in level-crossed
+## order. A save whose level already passed 10/20 without a pick (an old save,
+## or a skipped one) gets that pick queued immediately on load
+## ([method _queue_retroactive_slot_offers]) rather than waiting for another
+## level-up that, at max level, would never come.
 
 ## The infinite plane clicks are projected onto — the ground sits at y = 0. Picking
 ## against a mathematical plane needs no colliders and works even when the click is
@@ -72,12 +85,15 @@ const FALLBACK_SKILL_ID: String = "quick_strike"
 @export var starting_skill_id: String = ""
 
 ## G8 test knob (docs/0021), same idiom as `starting_skill_id`: true makes
-## every level-up a no-op for the support-offer flow — no RNG draw, no UI, no
-## pause — so a scene test that levels a player up for an unrelated reason
-## (e.g. G3's XP/health-bar suites) never gets stuck behind a picker it isn't
-## testing. Every existing scene test that can cross a level threshold pins
-## this true; the new G8 suite is the one place that deliberately leaves it
-## false to exercise the real picker.
+## every level-up a no-op for the reward flow — no RNG draw, no UI, no pause —
+## so a scene test that levels a player up for an unrelated reason (e.g. G3's
+## XP/health-bar suites) never gets stuck behind a picker it isn't testing.
+## G9 (docs/0022) widened its scope to also gate the level-10/20 skill-slot
+## offer and the retroactive-unlock catch-up on load, without renaming it — it
+## reads as "skip level-up reward offers" now, support or skill alike. Every
+## existing scene test that can cross a level threshold pins this true; the
+## dedicated G8/G9 suites are the ones that deliberately leave it false to
+## exercise the real pickers.
 @export var skip_support_offers: bool = false
 
 ## One combat RNG stream and one calculator for the whole scene (ADR 0004): every
@@ -114,12 +130,31 @@ var _skill_catalog: SkillCatalog
 ## before a save is ever possible; this one is neither.
 var _support_offer_rng: RngService
 var _support_catalog: SupportCatalog
-## Offers queued by level-ups that happened while a pick was already showing
-## (a big XP grant crossing several eligible levels at once) — each element is
-## one 3-support offer ([SupportCatalog.offer]'s return shape). Collapses
-## what would otherwise be several stacked/overlapping choice screens into one
-## shown at a time (docs/0021).
-var _pending_support_offers: Array = []
+## The slot-skill-offer stream (G9, docs/0022): a sixth dedicated stream,
+## `master_seed + 5`, drawn from whenever level 10/20 is reached (or, via the
+## retroactive-unlock policy, on load for a save whose level already passed
+## one of those without a pick). Persisted the same way `_support_offer_rng`
+## is (`slot_skill_offer_rng_state`) and for the identical reason: it keeps
+## drawing after saves exist, so a reload must resume it exactly, not replay
+## it from the derived seed.
+var _slot_skill_offer_rng: RngService
+## Rewards queued by level-ups (or the retroactive-unlock catch-up) that
+## happened while a pick was already showing — collapses what would otherwise
+## be several stacked/overlapping choice screens into one shown at a time
+## (docs/0021, extended by G9/docs/0022 to cover BOTH reward kinds). Each
+## element is either `{"kind": "support", "offer": Array[Dictionary]}`
+## ([SupportCatalog.offer]'s shape) or `{"kind": "skill", "slot": int,
+## "offer": Array[Dictionary]}` ([SkillCatalog.offer]'s shape plus which slot
+## the pick binds to) — order is level-crossed order, ascending, since each
+## level-up signal (already emitted in order by [method Player.gain_xp])
+## appends its own single entry the instant it fires.
+var _pending_rewards: Array[Dictionary] = []
+## Which slot a currently-shown "skill" reward binds to, or -1 when no
+## skill-slot pick is in flight — disambiguates [method _on_skill_chosen]
+## between the fresh-game starting-skill screen (never touches this, stays -1)
+## and a level-10/20 W/E pick reusing the exact same [SkillChoiceUI]/signal
+## (docs/0022).
+var _pending_skill_slot: int = -1
 var _pending_click: Vector2 = Vector2.ZERO
 var _has_pending_click: bool = false
 ## The seed this run's RNG streams derive from; kept around so _save_game can
@@ -143,6 +178,10 @@ var _monsters_killed: int = 0
 ## The XP bar (G3, docs/0017): a dumb view over the player's level/XP, the same
 ## idiom as _inventory_panel — redrawn on the player's `xp_changed` signal.
 @onready var _xp_bar: XPBar = $XPBar
+## The Q/W/E slot HUD (G9, issue #16, docs/0022): 3 small boxes near the XP
+## bar — display-only, polls every frame (see [SkillSlotsHUD] for why that's
+## the one dumb-view exception in this project).
+@onready var _skill_slots_hud: SkillSlotsHUD = $SkillSlotsHUD
 @onready var _save_button: Button = $SaveUI/SaveButton
 ## Cloud-save sync adapter (M5, ADR 0013). `SyncConfig.enabled = false` in a
 ## test's setup opts a scene instance out entirely, the same idiom pinning
@@ -166,11 +205,15 @@ func _ready() -> void:
 	_spawn_rng = RngService.new(_master_seed + 2)
 	_skill_offer_rng = RngService.new(_master_seed + 3)
 	_support_offer_rng = RngService.new(_master_seed + 4)
+	_slot_skill_offer_rng = RngService.new(_master_seed + 5)
 	if not loaded.is_empty():
 		_rng.set_state(int(loaded.get("combat_rng_state", _rng.get_state())))
 		_loot_rng.set_state(int(loaded.get("loot_rng_state", _loot_rng.get_state())))
 		_support_offer_rng.set_state(
 			int(loaded.get("supports_offer_rng_state", _support_offer_rng.get_state()))
+		)
+		_slot_skill_offer_rng.set_state(
+			int(loaded.get("slot_skill_offer_rng_state", _slot_skill_offer_rng.get_state()))
 		)
 	_calculator = DamageCalculator.new(_rng)
 	_loot_roller = LootRoller.new(
@@ -181,6 +224,7 @@ func _ready() -> void:
 	_player.setup_combat(_calculator)
 	_inventory_panel.setup(_player)
 	_xp_bar.setup(_player)
+	_skill_slots_hud.setup(_player)
 	_spawner.monster_spawned.connect(_on_monster_spawned)
 	_spawner.setup(_player, _monsters, _drops, _calculator, _spawn_rng)
 	_skill_choice_ui.skill_chosen.connect(_on_skill_chosen)
@@ -203,7 +247,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("save_game"):
 		_save_game()
 	elif event.is_action_pressed("cast_primary"):
-		_cast_at_mouse()
+		_cast_at_mouse(0)
+	elif event.is_action_pressed("cast_secondary"):
+		_cast_at_mouse(1)
+	elif event.is_action_pressed("cast_tertiary"):
+		_cast_at_mouse(2)
 
 
 func _physics_process(_delta: float) -> void:
@@ -236,16 +284,17 @@ func _resolve_click(screen_pos: Vector2) -> void:
 		_player.move_to(hit)
 
 
-## Q-cast (G6, issue #13, docs/0019): casts the equipped skill from wherever
-## the player currently stands, aimed at the mouse's ground-plane point — no
-## target lock and no walk-into-range, unlike a click order. Resolved
-## synchronously (unlike a click) because it only needs the same mathematical
-## ground-plane projection move-orders already use, never a physics-space
-## query, so there is no reason to defer it a physics tick.
-func _cast_at_mouse() -> void:
+## Q/W/E-cast (G6, issue #13, docs/0019; G9, issue #16, docs/0022): casts
+## [param slot]'s skill from wherever the player currently stands, aimed at
+## the mouse's ground-plane point — no target lock and no walk-into-range,
+## unlike a click order. Resolved synchronously (unlike a click) because it
+## only needs the same mathematical ground-plane projection move-orders
+## already use, never a physics-space query, so there is no reason to defer it
+## a physics tick.
+func _cast_at_mouse(slot: int) -> void:
 	var hit: Variant = _project_to_ground(get_viewport().get_mouse_position())
 	if hit != null:
-		_player.cast_at(hit)
+		_player.cast_at(hit, slot)
 
 
 ## Projects a screen point onto the mathematical [constant GROUND_PLANE] — the
@@ -313,11 +362,14 @@ func _save_game() -> void:
 		_rng.get_state(),
 		_loot_rng.get_state(),
 		_support_offer_rng.get_state(),
+		_slot_skill_offer_rng.get_state(),
 		_player.current_health(),
 		_player.global_position,
 		_player.inventory().bag(),
 		_player.inventory().equipped_by_slot(),
 		_player.skill_id(),
+		_player.slot_skill_id(1),
+		_player.slot_skill_id(2),
 		_player.level(),
 		_player.total_xp(),
 		_player.owned_supports(),
@@ -329,16 +381,21 @@ func _save_game() -> void:
 
 
 ## Applies a migrated save envelope to the live scene: player health/position/
-## inventory/equipment/skill and the progress counter. Shared by the
+## inventory/equipment/skill slots and the progress counter. Shared by the
 ## load-at-boot path in _ready and by _on_remote_save_applied (M5), so a newer
 ## save that arrives from the server after boot is applied the same way a local
 ## save would have been. A loaded save always carries a skill_id (migration
-## guarantees it, docs/0016), so this never shows the choice screen.
+## guarantees it, docs/0016), so this never shows the starting choice screen —
+## it CAN, however, queue a retroactive W/E pick (docs/0022) if the save's
+## level already passed 10/20 without one.
 func _apply_loaded_save(loaded: Dictionary) -> void:
 	_player.load_state(loaded)
 	_apply_skill(SaveData.skill_id_from_player(loaded))
+	_player.set_slot_skill(1, _skill_catalog.skill(SaveData.secondary_skill_id_from_player(loaded)))
+	_player.set_slot_skill(2, _skill_catalog.skill(SaveData.tertiary_skill_id_from_player(loaded)))
 	var progress: Dictionary = loaded.get("progress", {})
 	_monsters_killed = int(progress.get("monsters_killed", 0))
+	_queue_retroactive_slot_offers()
 
 
 ## Draws a deterministic 3-skill offer (G2, docs/0016) from the dedicated
@@ -351,48 +408,101 @@ func _offer_skill_choice() -> void:
 	get_tree().paused = true
 
 
+## [SkillChoiceUI.skill_chosen] fires from TWO different flows that both reuse
+## the same panel (docs/0022): the one-shot fresh-game starting pick
+## ([method _offer_skill_choice], `_pending_skill_slot` stays -1 the whole
+## time) and a level-10/20 W/E pick ([method _level_up_reward] /
+## [method _queue_retroactive_slot_offers] set `_pending_skill_slot` before
+## showing the panel). `_pending_skill_slot` is what tells the two apart.
 func _on_skill_chosen(skill_id: String) -> void:
-	get_tree().paused = false
-	_apply_skill(skill_id)
+	if _pending_skill_slot == -1:
+		get_tree().paused = false
+		_apply_skill(skill_id)
+		return
+	var slot: int = _pending_skill_slot
+	_pending_skill_slot = -1
+	_player.set_slot_skill(slot, _skill_catalog.skill(skill_id))
+	_advance_reward_queue()
 
 
-## The reserved-levels seam (G8, docs/0021 — G9's hook): dispatches what a
-## level-up reward IS for [param level], connected directly to
-## [signal Player.level_up]. Levels 10 and 20 are reserved for G9's own
-## skill-slot-unlock UI: this function returns before ever touching the
-## support-offer stream or queue for those two levels, so G9 claims them by
-## editing ONLY this function (e.g. branching to its own UI there instead of
-## falling through to "nothing") — no other part of the level-up path needs to
-## change. `skip_support_offers` (the scene-test bypass knob) short-circuits
-## the same way, before the reserved-level check, so a test pinning it never
-## touches the RNG stream or the picker at all.
+## The reserved-levels seam (G8, docs/0021 — G9's hook), connected directly to
+## [signal Player.level_up]: dispatches what a level-up reward IS for
+## [param level]. G9 (docs/0022) claims levels 10/20 for real — a skill-slot
+## offer bound to W (1) or E (2) — instead of the no-op G8 left here;
+## `skip_support_offers` (the scene-test bypass knob, its name unchanged from
+## G8 despite now gating both reward kinds — see docs/0022) still
+## short-circuits before either branch, so a test pinning it never touches
+## either RNG stream or either picker.
 func _level_up_reward(level: int) -> void:
-	if skip_support_offers or level == 10 or level == 20:
+	if skip_support_offers:
 		return
-	_pending_support_offers.append(_support_catalog.offer(_support_offer_rng, 3))
+	if level == 10 or level == 20:
+		_queue_skill_slot_offer(1 if level == 10 else 2)
+	else:
+		_pending_rewards.append({"kind": "support", "offer": _support_catalog.offer(_support_offer_rng, 3)})
 	if not get_tree().paused:
-		_show_next_support_offer()
+		_show_next_reward()
 
 
-## Pops the front of the queued offers and shows it, pausing the tree — safe
-## to call while already paused (a second/third queued offer after a pick,
-## docs/0021's "collapse, don't stack" rule for a multi-level XP grant).
-func _show_next_support_offer() -> void:
-	if _pending_support_offers.is_empty():
+## Draws a skill offer excluding whatever's already in another slot
+## ([Player.owned_skill_ids]) from the dedicated slot-skill-offer stream and
+## queues it as a "skill" reward bound to [param slot] — shared by a live
+## level-10/20 crossing and the retroactive-unlock catch-up on load
+## (docs/0022), so both draw from the exact same stream/exclusion rule.
+func _queue_skill_slot_offer(slot: int) -> void:
+	var offer: Array[Dictionary] = _skill_catalog.offer(
+		_slot_skill_offer_rng, 3, _player.owned_skill_ids()
+	)
+	_pending_rewards.append({"kind": "skill", "slot": slot, "offer": offer})
+
+
+## Pops the front of the queued rewards and shows whichever picker its "kind"
+## calls for — safe to call while already paused (a second/third queued
+## reward after a pick, docs/0021's "collapse, don't stack" rule for a
+## multi-level XP grant, extended by docs/0022 to a mix of reward kinds).
+func _show_next_reward() -> void:
+	if _pending_rewards.is_empty():
 		return
-	var offer: Array[Dictionary] = _pending_support_offers.pop_front()
-	_support_choice_ui.setup(offer)
+	var reward: Dictionary = _pending_rewards.pop_front()
+	if String(reward.get("kind", "")) == "skill":
+		_pending_skill_slot = int(reward.get("slot", -1))
+		_skill_choice_ui.setup(reward.get("offer", []))
+	else:
+		_support_choice_ui.setup(reward.get("offer", []))
 	get_tree().paused = true
 
 
-## A support card was picked: grant it, then either show the next queued
-## offer (still paused, no flicker) or unpause once the queue is empty.
+## A support card was picked: grant it, then advance the reward queue.
 func _on_support_chosen(support_id: String) -> void:
 	_player.add_support(support_id)
-	if _pending_support_offers.is_empty():
+	_advance_reward_queue()
+
+
+## Shows the next queued reward (still paused, no flicker) or unpauses once
+## the queue is empty — shared tail of both `_on_*_chosen` handlers.
+func _advance_reward_queue() -> void:
+	if _pending_rewards.is_empty():
 		get_tree().paused = false
 	else:
-		_show_next_support_offer()
+		_show_next_reward()
+
+
+## G9's retroactive-unlock policy (docs/0022): a save whose level already
+## passed 10/20 before this slot system existed (or whose W/E pick was somehow
+## skipped) never got the chance to pick — rather than waiting for another
+## level-up (which may never come again for a save already at `max_level`),
+## any already-unlocked-but-still-empty slot gets its offer queued right after
+## load, through the exact same reward-queue/UI path a live level-up uses.
+## `skip_support_offers` gates this too, so a test loading a pre-built
+## high-level save never gets stuck behind a picker it isn't testing.
+func _queue_retroactive_slot_offers() -> void:
+	if skip_support_offers:
+		return
+	for slot: int in range(1, SkillSlots.SLOT_COUNT):
+		if _player.is_slot_unlocked(slot) and _player.slot_skill_id(slot).is_empty():
+			_queue_skill_slot_offer(slot)
+	if not _pending_rewards.is_empty() and not get_tree().paused:
+		_show_next_reward()
 
 
 ## Resolves [param skill_id] against the catalog and applies it to the player,
