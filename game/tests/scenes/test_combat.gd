@@ -18,6 +18,17 @@ const STEP_FRAMES: int = 30
 const ENGAGED_DISTANCE: float = 3.0
 
 
+func before_test() -> void:
+	# Combat has nothing to do with cloud sync; disabling it keeps this suite
+	# hermetic and independent of network timing (M5, see docs/0013 - the same
+	# idiom test_save_load.gd uses for pinning rng_seed).
+	SyncConfig.enabled = false
+
+
+func after_test() -> void:
+	SyncConfig.enabled = true
+
+
 func test_monster_chases_and_damages_the_player() -> void:
 	var runner: GdUnitSceneRunner = scene_runner("res://scenes/main/main.tscn")
 	var main: Node3D = runner.scene()

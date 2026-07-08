@@ -30,10 +30,21 @@ const TIMEOUT_FRAMES: int = 900
 const STEP_FRAMES: int = 30
 
 
+func before_test() -> void:
+	# Save/load has nothing to do with cloud sync; disabling it keeps this
+	# suite hermetic and independent of network timing (M5, see docs/0013).
+	# _fresh_main() below boots with rng_seed == 0, the same "real boot" path
+	# SyncService normally runs on, so it would otherwise try to reach the
+	# server during this test.
+	SyncConfig.enabled = false
+
+
 func after_test() -> void:
 	# Guarantee cleanup even if an assertion fails mid-test (CLAUDE.md: keep
 	# headless runs hermetic, never leave a save behind for the next test).
 	SaveStore.delete()
+	SyncStore.delete()
+	SyncConfig.enabled = true
 
 
 ## Instantiates main.tscn with a fixed rng_seed, set *before* the scene enters the

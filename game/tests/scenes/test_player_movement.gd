@@ -23,6 +23,17 @@ const STEP_FRAMES: int = 20
 const SETTLE_EPSILON: float = 0.05
 
 
+func before_test() -> void:
+	# Movement has nothing to do with cloud sync; disabling it keeps this suite
+	# hermetic and independent of network timing (M5, see docs/0013 - the same
+	# idiom test_save_load.gd uses for pinning rng_seed).
+	SyncConfig.enabled = false
+
+
+func after_test() -> void:
+	SyncConfig.enabled = true
+
+
 func test_player_walks_to_ordered_destination() -> void:
 	var runner: GdUnitSceneRunner = scene_runner("res://scenes/main/main.tscn")
 	var main: Node3D = runner.scene()

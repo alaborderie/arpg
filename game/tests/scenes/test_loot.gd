@@ -25,6 +25,17 @@ const TIMEOUT_FRAMES: int = 900
 const STEP_FRAMES: int = 30
 
 
+func before_test() -> void:
+	# Loot has nothing to do with cloud sync; disabling it keeps this suite
+	# hermetic and independent of network timing (M5, see docs/0013 - the same
+	# idiom this file already uses rng_seed for).
+	SyncConfig.enabled = false
+
+
+func after_test() -> void:
+	SyncConfig.enabled = true
+
+
 ## Instantiates main.tscn with a fixed rng_seed, set *before* the scene enters
 ## the tree so `_ready` picks it up. `set()` (not `.rng_seed =`) sidesteps a
 ## static "unsafe property access" warning: main.gd has no class_name, so the
