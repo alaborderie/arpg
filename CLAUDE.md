@@ -316,3 +316,33 @@ make validate-data   # validates shared/*.json against shared/schemas/*
   `main.gd`, same idiom as the spawner's `forced_monster_id` — every scene
   test booting `main.tscn` fresh must pin it or expect the choice screen to
   pause the tree before anything else runs. Design in `docs/0016`.
+- **G3 — XP bar, levels, level-up bonuses — DONE.** Killing a monster grants
+  its `monsters.json` `xp_reward` (`Monster.xp_reward()` -> `main.gd`'s
+  `_on_monster_died` -> `Player.gain_xp`, right alongside the existing loot
+  roll). The curve lives in `shared/progression.json`
+  (`max_level`/`xp_base`/`xp_growth`/`level_bonus_pct`), validated by
+  `shared/schemas/progression.schema.json`; `ProgressionCurve`
+  (`game/domain/progression_curve.gd`) precomputes XP thresholds and exposes
+  `level_for_total_xp`/`progress_for_total_xp` (for the bar) and
+  `bonus_contribution(level)` — one Dictionary
+  (`attack_speed_pct`/`cast_speed_pct`/`max_health_pct`, all equal) that
+  `Player._recompose_stats()` appends to the same `contributions` array
+  equipment already feeds into `PlayerStats.compose` (G2's designated hook).
+  The contribution's percentage is pre-compounded
+  (`(1 + level_bonus_pct/100)^(level-1) - 1`) so `compose`'s existing
+  "sum-then-scale-once" rule reproduces the ticket's `x1.1^level` exactly when
+  it's the only contribution touching that stat — `max_health` is new to
+  `compose` entirely (G3 is its first contributor). A level-up recomposes
+  stats for the new level, then explicitly heals to the new max — the only
+  place that heals; a bare equip/unequip recompose only ever clamps `current`
+  *down* if `max_health` shrank, never up, so gear swapping can never
+  full-heal as a side effect. `XPBar` (`game/scenes/ui/xp_bar.gd`/`.tscn`) is
+  a bottom-of-screen, display-only panel — the same "dumb view redrawn on a
+  signal" idiom as `InventoryPanel`, wired to a new `Player.xp_changed`
+  signal. Save: `schema_version` 3, `player.level`/`player.xp` persist,
+  `_migrate_v2_to_v3` defaults a pre-G3 save to level 1 / 0 XP (keeping its
+  `monsters_killed`). `Player.max_health()` is a new getter (mirrors
+  `current_health()`) — G4's health bars should read it live rather than
+  caching a denominator, since it now changes at runtime on every level-up.
+  Design, the compounding-vs-additive-percent deviation, and the heal
+  decision in `docs/0017`.
