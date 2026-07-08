@@ -346,3 +346,27 @@ make validate-data   # validates shared/*.json against shared/schemas/*
   caching a denominator, since it now changes at runtime on every level-up.
   Design, the compounding-vs-additive-percent deviation, and the heal
   decision in `docs/0017`.
+- **G4 — Health bars above player and monsters — DONE.** `HealthBar3D`
+  (`game/scenes/fx/health_bar.gd`) is a small world-space bar — two stacked
+  billboard `QuadMesh` quads (dark background + colored fill scaled by health
+  fraction), built procedurally in `_ready` the same way `CombatFx` builds its
+  floating damage-number `Label3D`s — cheap with ~10+ live monsters (setup-time
+  cost only; `set_fraction()` is the sole per-hit/heal work, no `_process`, no
+  polling). Both quads use `BILLBOARD_ENABLED`, not `FIXED_Y`: the isometric
+  rig's fixed 50-degree pitch (`CameraRig.PITCH_DEGREES`) would present a
+  `FIXED_Y` (yaw-only) quad as a foreshortened sliver, while full billboarding
+  squares it onto the camera like the existing damage numbers. `Player` and
+  `Monster` each own one bar (green vs. red fill), positioned above the head
+  (`HEALTH_BAR_HEIGHT` on each scene script) and refreshed through a new
+  `health_changed` signal on both (same "signal + dumb redraw" idiom as
+  `xp_changed`/`inventory_changed`) hooked into `take_hit`, `_recompose_stats`,
+  and `gain_xp`'s level-up heal — never polled in `_process`. The player's bar
+  reads `Player.max_health()` live every update (G3's handoff: it changes at
+  runtime on level-up); a monster's `max_health` is read the same way for
+  consistency, though it never actually changes post-spawn so caching it would
+  be equally correct. Death: a monster's bar empties one frame before
+  `queue_free()` frees it along with the corpse (no dangling bar, no despawn
+  errors); the player's bar simply empties and stays empty (the player node
+  itself is never freed). No ADR — a straightforward billboard-quad bar was
+  judged not to need one; the design notes above live as doc-comments on
+  `HealthBar3D` itself.
