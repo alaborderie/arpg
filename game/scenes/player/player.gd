@@ -59,6 +59,12 @@ const PICKUP_RANGE: float = 1.8
 ## Height above the player's origin a fired projectile spawns at — roughly
 ## chest/weapon height, purely cosmetic.
 const PROJECTILE_SPAWN_HEIGHT: float = 1.0
+## Height above the player's origin the health bar floats at — just clear of
+## the capsule's head (G4, issue #11; the capsule is 1.8 m tall centered at
+## y=0.9, so its top sits around y=1.8).
+const HEALTH_BAR_HEIGHT: float = 2.1
+## Green fill, distinct from a monster bar's default red (docs: HealthBar3D).
+const HEALTH_BAR_COLOR: Color = Color(0.25, 0.75, 0.3)
 
 const PROJECTILE_SCENE: PackedScene = preload("res://scenes/combat/projectile.tscn")
 
@@ -67,6 +73,12 @@ signal inventory_changed
 ## Emitted whenever XP or level changes (a kill, or a restored save) — the XP
 ## bar UI listens and re-reads [method xp_progress]/[method level] (G3, docs/0017).
 signal xp_changed
+## Emitted whenever current or max health changes (a hit, a level-up heal, an
+## equip/unequip recompose, or a restored save) — G4, issue #11. The floating
+## health bar updates itself directly from the same call sites; this signal
+## exists for the same reason [signal xp_changed]/[signal inventory_changed]
+## do — any other observer can redraw without polling.
+signal health_changed
 
 ## Effective stats: base config composed with equipped items (see _recompose_stats).
 var _config: Dictionary = {}
@@ -105,6 +117,8 @@ var _attack_target: Monster
 var _pickup_target: GroundDrop
 var _inventory: Inventory = Inventory.new()
 var _dead: bool = false
+## Floating world-space bar above the player's head (G4, issue #11).
+var _health_bar: HealthBar3D
 
 @onready var _agent: NavigationAgent3D = $NavigationAgent3D
 @onready var _body: MeshInstance3D = $Body
@@ -124,6 +138,7 @@ func _ready() -> void:
 	_health = Health.new(int(_base_config.get("max_health", DEFAULT_MAX_HEALTH)))
 	_progression = ProgressionCurve.new(BalanceData.load_progression().get("progression", {}))
 	_recompose_stats()
+	_setup_health_bar()
 
 
 ## Injects the scene-shared [DamageCalculator]. Called by main before any combat;
@@ -245,6 +260,7 @@ func gain_xp(amount: int) -> void:
 		_level = new_level
 		_recompose_stats()
 		_health.current = _health.max_health
+		_update_health_bar()
 	xp_changed.emit()
 
 
@@ -329,6 +345,7 @@ func _recompose_stats() -> void:
 	if new_max_health != _health.max_health:
 		_health.max_health = new_max_health
 		_health.current = mini(_health.current, new_max_health)
+	_update_health_bar()
 
 
 ## Applies an already-resolved hit. Feedback here, rules in the domain.
@@ -341,6 +358,35 @@ func take_hit(result: DamageResult) -> void:
 		_die()
 	else:
 		CombatFx.flash(_body)
+	_update_health_bar()
+
+
+## Builds the floating health bar (G4, issue #11) once [member _health] exists
+## and an initial [method _recompose_stats] has run. Placed above the head at
+## [constant HEALTH_BAR_HEIGHT], tinted [constant HEALTH_BAR_COLOR] (green) to
+## read as distinct from a monster's default red.
+func _setup_health_bar() -> void:
+	_health_bar = HealthBar3D.new()
+	_health_bar.position = Vector3(0, HEALTH_BAR_HEIGHT, 0)
+	_health_bar.name = "HealthBar3D"
+	add_child(_health_bar)
+	_health_bar.set_color(HEALTH_BAR_COLOR)
+	_update_health_bar()
+
+
+## Pushes the current health fraction to the floating bar and emits
+## [signal health_changed]. Reads [method max_health] live rather than caching
+## a denominator — it changes at runtime on every level-up (docs/0017's
+## handoff note to this ticket). Called from every path that can move current
+## or max health: [method take_hit], [method _recompose_stats] (equip/level
+## changes), and [method gain_xp]'s explicit level-up heal. A no-op before the
+## bar/health exist yet (the first [method _recompose_stats] call in _ready
+## runs before [method _setup_health_bar]).
+func _update_health_bar() -> void:
+	if _health_bar == null or _health == null:
+		return
+	_health_bar.set_fraction(float(_health.current) / float(_health.max_health))
+	health_changed.emit()
 
 
 func _physics_process(delta: float) -> void:
