@@ -10,8 +10,18 @@ extends RefCounted
 ## Composition rules:
 ##  * `damage`      — an equipped weapon *replaces* the unarmed base damage
 ##                    (slots are unique, so at most one contribution carries damage).
+##                    Since G2 (docs/0016), "unarmed base damage" is whichever
+##                    skill the player has active — a weapon's implicit damage
+##                    still wins over it, exactly as it won over the player.json
+##                    baseline before skills existed.
 ##  * `armor`       — additive.
-##  * `attack_speed`— percentage increases sum, then scale the base once.
+##  * `attack_speed`— percentage increases sum, then scale the base once. Read
+##                    by melee skills (docs/0016).
+##  * `cast_speed`  — the same rule as `attack_speed`, kept as an independent
+##                    stat read by ranged skills. No item affix populates
+##                    `cast_speed_pct` yet; it exists so G3's per-level bonus
+##                    has one obvious contribution key to add alongside
+##                    `attack_speed_pct` (both fold through this same function).
 ##  * `crit_chance` — percentage-point increases add, clamped to [0, 1].
 ##  * `resistances` — additive per element (the mitigation cap in
 ##                    `shared/combat.json` bounds the effect, ADR 0005).
@@ -20,11 +30,13 @@ extends RefCounted
 static func compose(base_player: Dictionary, contributions: Array[Dictionary]) -> Dictionary:
 	var composed: Dictionary = base_player.duplicate(true)
 	var attack_speed_pct: float = 0.0
+	var cast_speed_pct: float = 0.0
 	for contribution: Dictionary in contributions:
 		if contribution.has("damage"):
 			composed["damage"] = (contribution.get("damage", {}) as Dictionary).duplicate()
 		composed["armor"] = int(composed.get("armor", 0)) + int(contribution.get("armor", 0))
 		attack_speed_pct += float(contribution.get("attack_speed_pct", 0.0))
+		cast_speed_pct += float(contribution.get("cast_speed_pct", 0.0))
 		composed["crit_chance"] = float(composed.get("crit_chance", 0.0)) \
 			+ float(contribution.get("crit_chance_pct", 0.0)) / 100.0
 		if contribution.has("resistances"):
@@ -36,5 +48,7 @@ static func compose(base_player: Dictionary, contributions: Array[Dictionary]) -
 			composed["resistances"] = merged
 	composed["attack_speed"] = float(composed.get("attack_speed", 1.0)) \
 		* (1.0 + attack_speed_pct / 100.0)
+	composed["cast_speed"] = float(composed.get("cast_speed", 1.0)) \
+		* (1.0 + cast_speed_pct / 100.0)
 	composed["crit_chance"] = clampf(float(composed.get("crit_chance", 0.0)), 0.0, 1.0)
 	return composed

@@ -13,12 +13,14 @@ const _DAMAGE_TYPE_BY_NAME: Dictionary = {
 	"fire": AttackProfile.DamageType.FIRE,
 	"cold": AttackProfile.DamageType.COLD,
 	"lightning": AttackProfile.DamageType.LIGHTNING,
+	"poison": AttackProfile.DamageType.POISON,
 }
 
 const _RESISTANCE_KEY_BY_TYPE: Dictionary = {
 	AttackProfile.DamageType.FIRE: "fire",
 	AttackProfile.DamageType.COLD: "cold",
 	AttackProfile.DamageType.LIGHTNING: "lightning",
+	AttackProfile.DamageType.POISON: "poison",
 }
 
 

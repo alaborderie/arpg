@@ -15,6 +15,7 @@ const MONSTERS_PATH: String = "res://shared/monsters.json"
 const COMBAT_PATH: String = "res://shared/combat.json"
 const ITEMS_PATH: String = "res://shared/items.json"
 const LOOT_TABLES_PATH: String = "res://shared/loot_tables.json"
+const SKILLS_PATH: String = "res://shared/skills.json"
 
 
 ## Returns the parsed `player.json` document, e.g. `{schema_version, player: {...}}`.
@@ -40,6 +41,11 @@ static func load_items() -> Dictionary:
 ## Returns the parsed `loot_tables.json` document, e.g. `{schema_version, rarities: [...], tables: [...]}`.
 static func load_loot_tables() -> Dictionary:
 	return _load_json_object(LOOT_TABLES_PATH)
+
+
+## Returns the parsed `skills.json` document, e.g. `{schema_version, skills: [...]}`.
+static func load_skills() -> Dictionary:
+	return _load_json_object(SKILLS_PATH)
 
 
 ## Returns the `monsters.json` entry whose `id` is [param monster_id], or an empty

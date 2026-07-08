@@ -7,7 +7,10 @@ extends RefCounted
 ## baked into logic. See docs/0005-data-driven-balance.md.
 
 ## Damage element. PHYSICAL is mitigated by armour; the rest by resistances.
-enum DamageType { PHYSICAL, FIRE, COLD, LIGHTNING }
+## POISON was added in G2 (docs/0016) alongside skills.json's poison-element
+## skills — monsters.json's resistances gained a matching `poison` key rather
+## than overloading an existing channel.
+enum DamageType { PHYSICAL, FIRE, COLD, LIGHTNING, POISON }
 
 ## Inclusive base damage range; the actual hit rolls uniformly within it.
 var base_min: int = 1
