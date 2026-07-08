@@ -25,7 +25,12 @@ extends Node3D
 
 enum Mode { HOMING, DIRECTIONAL }
 
-## Metres per second the projectile travels, in either mode.
+## Metres per second the projectile travels, in either mode — the fallback
+## when a caller doesn't pass its own `speed` (matches `shared/player.json`'s
+## `projectile_speed` baseline). G8 (docs/0021): [Player] now passes its own
+## composed `projectile_speed` (`faster_projectiles` support scales it via
+## `PlayerStats.compose`'s `projectile_speed_pct`), so this constant is only
+## ever the unmodified value in practice.
 const SPEED: float = 18.0
 ## Distance at which the projectile is considered to have "arrived" (homing)
 ## or to have passed close enough to damage a monster (directional). Same
@@ -43,31 +48,46 @@ var _traveled: float = 0.0
 var _max_distance: float = 0.0
 var _attack: AttackProfile
 var _calculator: DamageCalculator
+## Metres per second this specific projectile travels — defaults to
+## [constant SPEED], overridable per-cast (G8, docs/0021: [Player] passes its
+## composed `projectile_speed`, which `faster_projectiles` scales).
+var _speed: float = SPEED
 
 @onready var _body: MeshInstance3D = $Body
 
 
 ## Target-locked homing setup (G2) — call after add_child, like
-## [Monster.setup]/[GroundDrop.setup].
-func setup_homing(target: Monster, attack: AttackProfile, calculator: DamageCalculator) -> void:
+## [Monster.setup]/[GroundDrop.setup]. [param speed] is optional (G8) and
+## defaults to [constant SPEED] so every pre-G8 call site keeps compiling
+## unchanged.
+func setup_homing(
+	target: Monster, attack: AttackProfile, calculator: DamageCalculator, speed: float = SPEED
+) -> void:
 	_mode = Mode.HOMING
 	_target = target
 	_attack = attack
 	_calculator = calculator
+	_speed = speed
 	_tint_for_element(attack.damage_type)
 
 
 ## Free-aim directional setup (G6, docs/0019): [param direction] must already
 ## be a unit vector (callers normalize their aim direction once); [param
-## max_distance] is the casting skill's range. Call after add_child.
+## max_distance] is the casting skill's range. [param speed] is optional (G8),
+## same default/rationale as [method setup_homing]. Call after add_child.
 func setup_directional(
-	direction: Vector3, max_distance: float, attack: AttackProfile, calculator: DamageCalculator
+	direction: Vector3,
+	max_distance: float,
+	attack: AttackProfile,
+	calculator: DamageCalculator,
+	speed: float = SPEED
 ) -> void:
 	_mode = Mode.DIRECTIONAL
 	_direction = direction
 	_max_distance = max_distance
 	_attack = attack
 	_calculator = calculator
+	_speed = speed
 	_tint_for_element(attack.damage_type)
 	if _direction.length_squared() > FACING_EPSILON:
 		look_at(global_position + _direction, Vector3.UP)
@@ -90,7 +110,7 @@ func _process_homing(delta: float) -> void:
 		_resolve_hit_on(_target)
 		return
 	var direction: Vector3 = to_target.normalized()
-	global_position += direction * SPEED * delta
+	global_position += direction * _speed * delta
 	if direction.length_squared() > FACING_EPSILON:
 		look_at(global_position + direction, Vector3.UP)
 
@@ -105,7 +125,7 @@ func _process_directional(delta: float) -> void:
 	if hit != null:
 		_resolve_hit_on(hit)
 		return
-	var step: float = SPEED * delta
+	var step: float = _speed * delta
 	if _traveled + step >= _max_distance:
 		queue_free()
 		return

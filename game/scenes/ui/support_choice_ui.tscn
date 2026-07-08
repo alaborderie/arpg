@@ -1,0 +1,33 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scenes/ui/support_choice_ui.gd" id="1_support_choice_ui"]
+
+[node name="SupportChoiceUI" type="CanvasLayer"]
+process_mode = 3
+script = ExtResource("1_support_choice_ui")
+
+[node name="Dim" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0, 0, 0, 0.6)
+mouse_filter = 2
+
+[node name="Center" type="CenterContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Layout" type="VBoxContainer" parent="Center"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="Title" type="Label" parent="Center/Layout"]
+layout_mode = 2
+horizontal_alignment = 1
+text = "Choose a support"
+
+[node name="Cards" type="HBoxContainer" parent="Center/Layout"]
+layout_mode = 2
+theme_override_constants/separation = 16
+alignment = 1

@@ -40,6 +40,18 @@ extends CharacterBody3D
 ## recomposing for the new level — an equip/unequip recompose (no level change)
 ## never touches current health.
 ##
+## G8 adds [method add_support]: a support id (`shared/supports.json`) joins
+## `_owned_supports`, and [SupportCatalog.contribution_for_owned] becomes one
+## more entry in the same `contributions` array (docs/0021) — supports are
+## global, applying to whichever skill/equipment is active, exactly like the
+## level bonus. [signal level_up] fires once per level crossed by
+## [method gain_xp] (main.gd owns deciding whether that level offers a pick,
+## since only it holds the dedicated RNG stream and the choice UI). Two
+## cast-pipeline reads join `_recompose_stats`'s output: `added_projectiles`
+## (how many extra projectiles a ranged cast fans out, [method _fire_projectile]/
+## [method _fire_projectile_directional]) and `life_on_kill` (a flat heal
+## main.gd applies via [method heal] after a kill it caused).
+##
 ## Godot notes: [CharacterBody3D] is the engine's kinematic body — it moves by
 ## `move_and_slide()` from a `velocity` we set each physics tick, rather than by
 ## forces. The child [NavigationAgent3D] asks the NavigationServer for a path across
@@ -82,6 +94,10 @@ const CAST_ARC_DEGREES: float = 90.0
 const HEALTH_BAR_HEIGHT: float = 2.1
 ## Green fill, distinct from a monster bar's default red (docs: HealthBar3D).
 const HEALTH_BAR_COLOR: Color = Color(0.25, 0.75, 0.3)
+## Angular step between fanned-out projectiles when `added_projectiles` (G8,
+## docs/0021) puts more than one in the air at once — small enough to read as
+## "a fan from one cast", nowhere near the melee arc's 90 degrees.
+const SUPPORT_PROJECTILE_FAN_DEGREES: float = 12.0
 
 const PROJECTILE_SCENE: PackedScene = preload("res://scenes/combat/projectile.tscn")
 
@@ -96,6 +112,12 @@ signal xp_changed
 ## exists for the same reason [signal xp_changed]/[signal inventory_changed]
 ## do — any other observer can redraw without polling.
 signal health_changed
+## Emitted once per level gained (G8, docs/0021) — [param level] is the level
+## just reached. main.gd listens to decide whether this level offers a
+## support pick (it owns the dedicated RNG stream and choice UI); multiple
+## levels crossed by one big XP grant each emit their own signal, in order, so
+## main.gd can queue rather than stack their offers.
+signal level_up(level: int)
 
 ## Effective stats: base config composed with equipped items (see _recompose_stats).
 var _config: Dictionary = {}
@@ -119,6 +141,21 @@ var _level: int = 1
 ## Total accumulated XP (not "XP into the current level" — see xp_progress()
 ## for that breakdown). Persisted as-is (SaveData).
 var _xp: int = 0
+## The support catalog (G8, docs/0021), loaded once from `shared/supports.json` —
+## same self-loading pattern as `_progression`.
+var _support_catalog: SupportCatalog
+## Owned support ids, duplicates allowed (stacking — docs/0021). Persisted
+## as-is (SaveData).
+var _owned_supports: Array[String] = []
+## Composed `projectile_speed` (G8): `faster_projectiles` scales this via
+## `PlayerStats.compose`; defaults to `Projectile.SPEED` before any data loads.
+var _projectile_speed: float = Projectile.SPEED
+## Composed `added_projectiles` (G8): how many EXTRA projectiles a ranged cast
+## fans out beyond the first.
+var _added_projectiles: int = 0
+## Composed `life_on_kill` (G8): flat heal main.gd applies via [method heal]
+## after a kill this player caused.
+var _life_on_kill: int = 0
 var _move_speed: float = DEFAULT_MOVE_SPEED
 var _attack_range: float = DEFAULT_ATTACK_RANGE
 var _seconds_between_attacks: float = 1.0 / DEFAULT_ATTACK_SPEED
@@ -158,6 +195,7 @@ func _ready() -> void:
 	# on — see _recompose_stats).
 	_health = Health.new(int(_base_config.get("max_health", DEFAULT_MAX_HEALTH)))
 	_progression = ProgressionCurve.new(BalanceData.load_progression().get("progression", {}))
+	_support_catalog = SupportCatalog.new(BalanceData.load_supports())
 	_recompose_stats()
 	_setup_health_bar()
 
@@ -263,6 +301,43 @@ func skill_id() -> String:
 	return String(_skill.get("id", ""))
 
 
+## Owned support ids (G8, docs/0021), duplicates preserved — read by main.gd
+## to persist the choice (SaveData) and by tests to assert what got granted.
+func owned_supports() -> Array[String]:
+	return _owned_supports.duplicate()
+
+
+## Grants [param support_id] (a `shared/supports.json` id) and recomposes
+## stats so it takes effect immediately — called by main.gd after a level-up
+## pick, a save load, or a test driving the effect directly. A no-op for an
+## unknown id (same "degrade instead of crash" convention as [method set_skill]).
+## Owning the same id twice is exactly the intended stacking behaviour
+## (docs/0021) — nothing here deduplicates.
+func add_support(support_id: String) -> void:
+	if _support_catalog == null or _support_catalog.support(support_id).is_empty():
+		return
+	_owned_supports.append(support_id)
+	_recompose_stats()
+
+
+## The current composed flat heal-per-kill (G8, docs/0021's `life_on_kill`
+## support) — main.gd reads this to apply the heal right after a kill this
+## player caused.
+func life_on_kill() -> int:
+	return _life_on_kill
+
+
+## Heals up to [param amount] hit points, clamped to the current max — never
+## raises above it, mirroring [Health.take_damage]'s own clamping. A no-op for
+## a non-positive amount. Used by [method life_on_kill]'s caller (main.gd) and
+## available directly for tests.
+func heal(amount: int) -> void:
+	if amount <= 0 or _health == null:
+		return
+	_health.current = mini(_health.max_health, _health.current + amount)
+	_update_health_bar()
+
+
 ## Grants [param amount] XP (G3, docs/0017) — main.gd calls this from
 ## `_on_monster_died` with the dead [Monster]'s `xp_reward`. A no-op for a
 ## non-positive amount (never emits, never zero-heals). If the new total
@@ -270,33 +345,42 @@ func skill_id() -> String:
 ## (so the attack_speed/cast_speed/max_health bonus takes effect immediately)
 ## and heals to the new max — the one explicit level-up heal, documented in
 ## docs/0017 as the classic ARPG choice; a bare recompose alone never heals
-## (see _recompose_stats). Always emits [signal xp_changed] on success so the
-## XP bar UI redraws even when a kill doesn't cross a level threshold.
+## (see _recompose_stats). [signal level_up] fires once per level crossed, in
+## order (G8, docs/0021) — a single big XP grant that crosses several levels
+## emits several signals, so main.gd's queueing (not this function's concern)
+## can collapse them into one offer at a time instead of stacking UIs. Always
+## emits [signal xp_changed] on success so the XP bar UI redraws even when a
+## kill doesn't cross a level threshold.
 func gain_xp(amount: int) -> void:
 	if amount <= 0 or _progression == null:
 		return
 	_xp += amount
 	var new_level: int = _progression.level_for_total_xp(_xp)
 	if new_level != _level:
+		var old_level: int = _level
 		_level = new_level
 		_recompose_stats()
 		_health.current = _health.max_health
 		_update_health_bar()
+		for crossed_level: int in range(old_level + 1, new_level + 1):
+			level_up.emit(crossed_level)
 	xp_changed.emit()
 
 
-## Restores health, position, bag, equipped items, level and XP from a migrated
-## save envelope (M4, G3 — see [SaveData] for the shape). Called by main once
-## combat is wired up. Level/XP are restored *before* the first recompose so
-## the restored level's max-health bonus is already in `_config` when the saved
-## health is clamped against it — clamping against the level-1 default max
-## first, then again after a second recompose, would silently cap a
-## higher-level save's health at the wrong ceiling. A restored death
-## (health <= 0) re-applies the death state.
+## Restores health, position, bag, equipped items, level, XP and owned
+## supports from a migrated save envelope (M4, G3, G8 — see [SaveData] for the
+## shape). Called by main once combat is wired up. Level/XP/supports are
+## restored *before* the first recompose so the restored level's max-health
+## bonus (and any owned support's effect) is already in `_config` when the
+## saved health is clamped against it — clamping against the level-1/no-support
+## default max first, then again after a second recompose, would silently cap
+## a higher-level (or support-boosted) save's health at the wrong ceiling. A
+## restored death (health <= 0) re-applies the death state.
 func load_state(save: Dictionary) -> void:
 	var player_data: Dictionary = save.get("player", {})
 	_level = SaveData.level_from_player(save)
 	_xp = SaveData.xp_from_player(save)
+	_owned_supports = SaveData.supports_from_player(save)
 	_recompose_stats()
 	_health.current = clampi(int(player_data.get("health", _health.max_health)), 0, _health.max_health)
 	global_position = SaveData.position_from_player(save)
@@ -344,6 +428,13 @@ func unequip_slot(slot: String) -> void:
 ## this — that keeps an equip/unequip-only recompose (no level change, and
 ## today no item touches `max_health_pct` either) from ever refilling health as
 ## a side effect.
+##
+## G8 (docs/0021): [SupportCatalog.contribution_for_owned] is one more
+## contribution appended alongside equipment/level — supports are global, so
+## this is the single place their effect reaches every stat the composition
+## pipeline already understands. `_projectile_speed`/`_added_projectiles`/
+## `_life_on_kill` are synced from the composed output the same way
+## `_move_speed`/`_attack_range` already are.
 func _recompose_stats() -> void:
 	var skill_base: Dictionary = _base_config.duplicate(true)
 	if not _skill.is_empty():
@@ -354,9 +445,14 @@ func _recompose_stats() -> void:
 		var base: Dictionary = _item_bases_by_id.get(String(item.get("base_id", "")), {})
 		contributions.append(ItemStats.contribution(item, base))
 	contributions.append(_progression.bonus_contribution(_level))
+	if _support_catalog != null:
+		contributions.append(_support_catalog.contribution_for_owned(_owned_supports))
 	_config = PlayerStats.compose(skill_base, contributions)
 	_move_speed = float(_config.get("move_speed", DEFAULT_MOVE_SPEED))
 	_attack_range = float(_config.get("attack_range", DEFAULT_ATTACK_RANGE))
+	_projectile_speed = float(_config.get("projectile_speed", Projectile.SPEED))
+	_added_projectiles = maxi(0, int(_config.get("added_projectiles", 0)))
+	_life_on_kill = maxi(0, int(_config.get("life_on_kill", 0)))
 	var speed_key: String = "cast_speed" if _skill_kind == "ranged" else "attack_speed"
 	_seconds_between_attacks = 1.0 / maxf(
 		float(_config.get(speed_key, DEFAULT_ATTACK_SPEED)), 0.01
@@ -500,11 +596,23 @@ func _try_attack() -> void:
 ## [Projectile] instead of an instant hit — it resolves the actual damage
 ## through the same [DamageCalculator]/[DefenseProfile] path on impact, so
 ## melee and ranged skills share every rule except when the hit lands.
+##
+## G8 (docs/0021): `added_projectiles` spawns that many extras, all homing on
+## the same target — there's no "direction" to fan a lock-on shot around, so
+## more projectiles here just means more separate hits on the one target
+## (each spawned with a small sideways offset, purely cosmetic, so they don't
+## render exactly on top of one another).
 func _fire_projectile() -> void:
-	var projectile: Projectile = PROJECTILE_SCENE.instantiate() as Projectile
-	get_parent().add_child(projectile)
-	projectile.global_position = global_position + Vector3.UP * PROJECTILE_SPAWN_HEIGHT
-	projectile.setup_homing(_attack_target, _attack, _calculator)
+	var count: int = 1 + _added_projectiles
+	var right: Vector3 = global_transform.basis.x
+	for i: int in count:
+		var offset: float = (float(i) - float(count - 1) / 2.0) * 0.3
+		var projectile: Projectile = PROJECTILE_SCENE.instantiate() as Projectile
+		get_parent().add_child(projectile)
+		projectile.global_position = (
+			global_position + Vector3.UP * PROJECTILE_SPAWN_HEIGHT + right * offset
+		)
+		projectile.setup_homing(_attack_target, _attack, _calculator, _projectile_speed)
 
 
 ## The Q-cast entry point (G6, issue #13, docs/0019) — main.gd's `cast_primary`
@@ -547,11 +655,25 @@ func _cast(aim_direction: Vector3) -> void:
 ## [param direction], no target, travels up to `_attack_range` metres before
 ## despawning, damaging the first live monster it passes within
 ## [constant Projectile.HIT_RADIUS] — see [method Projectile.setup_directional].
+##
+## G8 (docs/0021): `added_projectiles` fans out that many extras around
+## [param direction], each rotated [constant SUPPORT_PROJECTILE_FAN_DEGREES]
+## further from center (symmetric either side for an even count) — this is
+## the "small fan" the ticket asks for, and it works identically whether one
+## or several are in the air, so a base cast (count 1) is just a fan of one
+## with a zero offset.
 func _fire_projectile_directional(direction: Vector3) -> void:
-	var projectile: Projectile = PROJECTILE_SCENE.instantiate() as Projectile
-	get_parent().add_child(projectile)
-	projectile.global_position = global_position + Vector3.UP * PROJECTILE_SPAWN_HEIGHT
-	projectile.setup_directional(direction.normalized(), _attack_range, _attack, _calculator)
+	var forward: Vector3 = direction.normalized()
+	var count: int = 1 + _added_projectiles
+	for i: int in count:
+		var angle_degrees: float = (float(i) - float(count - 1) / 2.0) * SUPPORT_PROJECTILE_FAN_DEGREES
+		var fanned_direction: Vector3 = forward.rotated(Vector3.UP, deg_to_rad(angle_degrees))
+		var projectile: Projectile = PROJECTILE_SCENE.instantiate() as Projectile
+		get_parent().add_child(projectile)
+		projectile.global_position = global_position + Vector3.UP * PROJECTILE_SPAWN_HEIGHT
+		projectile.setup_directional(
+			fanned_direction, _attack_range, _attack, _calculator, _projectile_speed
+		)
 
 
 ## Resolves a melee Q-cast instantly (G6, docs/0019): every live monster in the

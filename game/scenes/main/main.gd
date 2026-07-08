@@ -27,6 +27,14 @@ extends Node3D
 ## the mouse's ground-plane point via [method Player.cast_at] — free-aim, no
 ## target lock, resolved the instant the key is pressed (not deferred like a
 ## click) since it never needs a physics-space query.
+##
+## G8 (docs/0021): [signal Player.level_up] drives [method _level_up_reward],
+## which draws a pick-1-of-3 support offer from the dedicated
+## `master_seed + 4` stream and shows [SupportChoiceUI] (same
+## `get_tree().paused` idiom as the G2 skill-choice screen) — except for
+## levels 10/20, reserved for G9's own skill-unlock UI. A big XP grant
+## crossing several eligible levels queues one offer per level rather than
+## stacking screens (`_pending_support_offers`).
 
 ## The infinite plane clicks are projected onto — the ground sits at y = 0. Picking
 ## against a mathematical plane needs no colliders and works even when the click is
@@ -63,6 +71,15 @@ const FALLBACK_SKILL_ID: String = "quick_strike"
 ## pick. Ignored when a save is loaded (the save's own skill_id wins).
 @export var starting_skill_id: String = ""
 
+## G8 test knob (docs/0021), same idiom as `starting_skill_id`: true makes
+## every level-up a no-op for the support-offer flow — no RNG draw, no UI, no
+## pause — so a scene test that levels a player up for an unrelated reason
+## (e.g. G3's XP/health-bar suites) never gets stuck behind a picker it isn't
+## testing. Every existing scene test that can cross a level threshold pins
+## this true; the new G8 suite is the one place that deliberately leaves it
+## false to exercise the real picker.
+@export var skip_support_offers: bool = false
+
 ## One combat RNG stream and one calculator for the whole scene (ADR 0004): every
 ## hit, whoever swings, draws from the same reproducible sequence.
 var _rng: RngService
@@ -84,6 +101,25 @@ var _spawn_rng: RngService
 ## 0015 made for the spawn stream.
 var _skill_offer_rng: RngService
 var _skill_catalog: SkillCatalog
+## The support-offer stream (G8, docs/0021): a fifth dedicated stream,
+## `master_seed + 4`, drawn from on every eligible level-up throughout the
+## whole run (unlike the skill-offer stream above, drawn once ever) — so,
+## unlike `_spawn_rng`/`_skill_offer_rng`, its state IS part of the save
+## envelope (`supports_offer_rng_state`): a reload must resume this stream
+## exactly where it left off, or replaying past a level a save already
+## resolved would draw a *different* 3-card offer than the one shown the first
+## time. docs/0021 documents this as the deliberate opposite call from ADR
+## 0015/0016's un-persisted streams, for exactly the reason those ADRs
+## themselves give: those streams are either ephemeral forever or exhausted
+## before a save is ever possible; this one is neither.
+var _support_offer_rng: RngService
+var _support_catalog: SupportCatalog
+## Offers queued by level-ups that happened while a pick was already showing
+## (a big XP grant crossing several eligible levels at once) — each element is
+## one 3-support offer ([SupportCatalog.offer]'s return shape). Collapses
+## what would otherwise be several stacked/overlapping choice screens into one
+## shown at a time (docs/0021).
+var _pending_support_offers: Array = []
 var _pending_click: Vector2 = Vector2.ZERO
 var _has_pending_click: bool = false
 ## The seed this run's RNG streams derive from; kept around so _save_game can
@@ -101,6 +137,9 @@ var _monsters_killed: int = 0
 @onready var _spawner: MonsterSpawner = $MonsterSpawner
 @onready var _inventory_panel: InventoryPanel = $InventoryPanel
 @onready var _skill_choice_ui: SkillChoiceUI = $SkillChoiceUI
+## The support-pick screen (G8, docs/0021): shown after most level-ups, same
+## dumb-view idiom as _skill_choice_ui.
+@onready var _support_choice_ui: SupportChoiceUI = $SupportChoiceUI
 ## The XP bar (G3, docs/0017): a dumb view over the player's level/XP, the same
 ## idiom as _inventory_panel — redrawn on the player's `xp_changed` signal.
 @onready var _xp_bar: XPBar = $XPBar
@@ -126,20 +165,27 @@ func _ready() -> void:
 	_loot_rng = RngService.new(_master_seed + 1)
 	_spawn_rng = RngService.new(_master_seed + 2)
 	_skill_offer_rng = RngService.new(_master_seed + 3)
+	_support_offer_rng = RngService.new(_master_seed + 4)
 	if not loaded.is_empty():
 		_rng.set_state(int(loaded.get("combat_rng_state", _rng.get_state())))
 		_loot_rng.set_state(int(loaded.get("loot_rng_state", _loot_rng.get_state())))
+		_support_offer_rng.set_state(
+			int(loaded.get("supports_offer_rng_state", _support_offer_rng.get_state()))
+		)
 	_calculator = DamageCalculator.new(_rng)
 	_loot_roller = LootRoller.new(
 		BalanceData.load_loot_tables(), BalanceData.load_items(), _loot_rng
 	)
 	_skill_catalog = SkillCatalog.new(BalanceData.load_skills())
+	_support_catalog = SupportCatalog.new(BalanceData.load_supports())
 	_player.setup_combat(_calculator)
 	_inventory_panel.setup(_player)
 	_xp_bar.setup(_player)
 	_spawner.monster_spawned.connect(_on_monster_spawned)
 	_spawner.setup(_player, _monsters, _drops, _calculator, _spawn_rng)
 	_skill_choice_ui.skill_chosen.connect(_on_skill_chosen)
+	_support_choice_ui.support_chosen.connect(_on_support_chosen)
+	_player.level_up.connect(_level_up_reward)
 	if not loaded.is_empty():
 		_apply_loaded_save(loaded)
 	elif starting_skill_id != "":
@@ -238,9 +284,12 @@ func _on_monster_spawned(monster: Monster) -> void:
 ## during the `died` emission (freed right after). `monster.xp_reward()` and
 ## the `is_elite()` passed into the loot roll already carry the elite
 ## multipliers (G7, docs/0020) — main.gd itself stays unaware of the numbers.
+## G8 (docs/0021): every kill also applies the player's composed
+## `life_on_kill` flat heal (a no-op at 0, the default with no support owned).
 func _on_monster_died(monster: Monster) -> void:
 	_monsters_killed += 1
 	_player.gain_xp(monster.xp_reward())
+	_player.heal(_player.life_on_kill())
 	var item: Dictionary = _loot_roller.roll_drop(monster.monster_id(), monster.is_elite())
 	if item.is_empty():
 		return
@@ -263,6 +312,7 @@ func _save_game() -> void:
 		_master_seed,
 		_rng.get_state(),
 		_loot_rng.get_state(),
+		_support_offer_rng.get_state(),
 		_player.current_health(),
 		_player.global_position,
 		_player.inventory().bag(),
@@ -270,6 +320,7 @@ func _save_game() -> void:
 		_player.skill_id(),
 		_player.level(),
 		_player.total_xp(),
+		_player.owned_supports(),
 		_monsters_killed,
 		int(Time.get_unix_time_from_system())
 	)
@@ -303,6 +354,45 @@ func _offer_skill_choice() -> void:
 func _on_skill_chosen(skill_id: String) -> void:
 	get_tree().paused = false
 	_apply_skill(skill_id)
+
+
+## The reserved-levels seam (G8, docs/0021 — G9's hook): dispatches what a
+## level-up reward IS for [param level], connected directly to
+## [signal Player.level_up]. Levels 10 and 20 are reserved for G9's own
+## skill-slot-unlock UI: this function returns before ever touching the
+## support-offer stream or queue for those two levels, so G9 claims them by
+## editing ONLY this function (e.g. branching to its own UI there instead of
+## falling through to "nothing") — no other part of the level-up path needs to
+## change. `skip_support_offers` (the scene-test bypass knob) short-circuits
+## the same way, before the reserved-level check, so a test pinning it never
+## touches the RNG stream or the picker at all.
+func _level_up_reward(level: int) -> void:
+	if skip_support_offers or level == 10 or level == 20:
+		return
+	_pending_support_offers.append(_support_catalog.offer(_support_offer_rng, 3))
+	if not get_tree().paused:
+		_show_next_support_offer()
+
+
+## Pops the front of the queued offers and shows it, pausing the tree — safe
+## to call while already paused (a second/third queued offer after a pick,
+## docs/0021's "collapse, don't stack" rule for a multi-level XP grant).
+func _show_next_support_offer() -> void:
+	if _pending_support_offers.is_empty():
+		return
+	var offer: Array[Dictionary] = _pending_support_offers.pop_front()
+	_support_choice_ui.setup(offer)
+	get_tree().paused = true
+
+
+## A support card was picked: grant it, then either show the next queued
+## offer (still paused, no flicker) or unpause once the queue is empty.
+func _on_support_chosen(support_id: String) -> void:
+	_player.add_support(support_id)
+	if _pending_support_offers.is_empty():
+		get_tree().paused = false
+	else:
+		_show_next_support_offer()
 
 
 ## Resolves [param skill_id] against the catalog and applies it to the player,

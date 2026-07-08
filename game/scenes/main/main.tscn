@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scenes/main/main.gd" id="1_main"]
 [ext_resource type="PackedScene" path="res://scenes/world/test_map.tscn" id="2_test_map"]
@@ -9,6 +9,7 @@
 [ext_resource type="Script" path="res://scenes/world/monster_spawner.gd" id="7_monster_spawner"]
 [ext_resource type="PackedScene" path="res://scenes/ui/skill_choice_ui.tscn" id="8_skill_choice_ui"]
 [ext_resource type="PackedScene" path="res://scenes/ui/xp_bar.tscn" id="9_xp_bar"]
+[ext_resource type="PackedScene" path="res://scenes/ui/support_choice_ui.tscn" id="10_support_choice_ui"]
 
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
@@ -35,6 +36,8 @@ shadow_enabled = true
 [node name="XPBar" parent="." instance=ExtResource("9_xp_bar")]
 
 [node name="SkillChoiceUI" parent="." instance=ExtResource("8_skill_choice_ui")]
+
+[node name="SupportChoiceUI" parent="." instance=ExtResource("10_support_choice_ui")]
 
 [node name="SyncService" type="Node" parent="."]
 script = ExtResource("6_sync_service")
