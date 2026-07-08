@@ -1,9 +1,10 @@
 // Command server is the ARPG backend.
 //
 // It is OPTIONAL from the client's perspective: the game is fully playable with
-// no connection. For now the server exposes only a health check; device auth and
-// cloud-save sync arrive in M5, and the AI-farming agent runner in M6. Everything
-// with economic value is validated server-side and never trusted from the client.
+// no connection. Device auth (M5) and cloud-save sync (M5) are live; M6 adds a
+// deterministic, LLM-free AI-farming map-run resolver behind POST /v1/farm/run.
+// Everything with economic value is validated server-side and never trusted
+// from the client.
 package main
 
 import (
@@ -18,6 +19,7 @@ import (
 
 	"github.com/alaborderie/arpg/server/internal/auth"
 	"github.com/alaborderie/arpg/server/internal/config"
+	"github.com/alaborderie/arpg/server/internal/farming"
 	"github.com/alaborderie/arpg/server/internal/httpapi"
 	"github.com/alaborderie/arpg/server/internal/saves"
 	"github.com/alaborderie/arpg/server/internal/store"
@@ -43,9 +45,16 @@ func main() {
 	authSvc := auth.NewService(st.Queries)
 	saveSvc := saves.NewService(st.Queries)
 
+	farmData, err := farming.LoadData(cfg.SharedDataDir)
+	if err != nil {
+		logger.Error("load shared data failed", "err", err, "shared_data_dir", cfg.SharedDataDir)
+		os.Exit(1)
+	}
+	farmSvc := farming.NewService(farmData)
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpapi.NewRouter(logger, authSvc, saveSvc),
+		Handler:           httpapi.NewRouter(logger, authSvc, saveSvc, farmSvc),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

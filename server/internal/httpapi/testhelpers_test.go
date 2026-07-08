@@ -12,9 +12,16 @@ import (
 	"testing"
 
 	"github.com/alaborderie/arpg/server/internal/auth"
+	"github.com/alaborderie/arpg/server/internal/farming"
 	"github.com/alaborderie/arpg/server/internal/saves"
 	"github.com/alaborderie/arpg/server/internal/store"
 )
+
+// testSharedDataDir points at the repo-root shared/ directory from this
+// package's location, server/internal/httpapi - the same real balance data
+// internal/farming's own tests load, so the farm endpoint is exercised
+// against the actual shared/monsters.json roster rather than a fixture.
+const testSharedDataDir = "../../../shared"
 
 // newTestRouter builds a router backed by a fresh, migrated, temp-file SQLite
 // database - the real auth and saves services, not fakes, so these tests
@@ -35,9 +42,16 @@ func newTestRouter(t *testing.T) http.Handler {
 
 	authSvc := auth.NewService(st.Queries)
 	saveSvc := saves.NewService(st.Queries)
+
+	farmData, err := farming.LoadData(testSharedDataDir)
+	if err != nil {
+		t.Fatalf("load shared data for farm service: %v", err)
+	}
+	farmSvc := farming.NewService(farmData)
+
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	return NewRouter(logger, authSvc, saveSvc)
+	return NewRouter(logger, authSvc, saveSvc, farmSvc)
 }
 
 // registerDeviceForTest registers deviceID against router and returns its

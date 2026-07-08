@@ -13,6 +13,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/alaborderie/arpg/server/internal/farming"
 )
 
 // AuthService resolves bearer tokens to device identities and registers new
@@ -32,15 +34,26 @@ type SaveService interface {
 	Download(ctx context.Context, deviceID string) (schemaVersion int64, payload []byte, savedAtUnix int64, err error)
 }
 
+// FarmService drives one AI-farming map run (M6) for an authenticated
+// device: a deterministic, LLM-free simulation over shared/ balance data
+// (see internal/farming and docs/0014). Unlike AuthService/SaveService this
+// interface's methods take/return internal/farming's own exported types
+// rather than primitives - the run summary and tool-call transcript are
+// nested and JSON-shaped by design, so farming's DTOs *are* the wire
+// contract, not an internal detail to hide.
+type FarmService interface {
+	Run(ctx context.Context, deviceID string, req farming.RunRequest) (farming.RunOutput, error)
+}
+
 // NewRouter builds the HTTP handler for the whole server.
-func NewRouter(logger *slog.Logger, auth AuthService, saves SaveService) http.Handler {
+func NewRouter(logger *slog.Logger, auth AuthService, saves SaveService, farm FarmService) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
 	r.Use(requestLogger(logger))
 
-	h := &handlers{logger: logger, auth: auth, saves: saves}
+	h := &handlers{logger: logger, auth: auth, saves: saves, farm: farm}
 
 	r.Get("/health", h.health)
 
@@ -51,20 +64,22 @@ func NewRouter(logger *slog.Logger, auth AuthService, saves SaveService) http.Ha
 			r.Use(h.requireDeviceAuth)
 			r.Put("/save", h.uploadSave)
 			r.Get("/save", h.downloadSave)
+			r.Post("/farm/run", h.runFarm)
 		})
 	})
 
 	return r
 }
 
-// handlers carries the dependencies shared by every route handler. auth and
-// saves are interfaces (not the concrete service types) so handlers never
-// depend on how tokens are minted or how saves are persisted - only on the
-// two operations each needs.
+// handlers carries the dependencies shared by every route handler. auth,
+// saves and farm are interfaces (not the concrete service types) so
+// handlers never depend on how tokens are minted, how saves are persisted,
+// or how a farm run is simulated - only on the operations each needs.
 type handlers struct {
 	logger *slog.Logger
 	auth   AuthService
 	saves  SaveService
+	farm   FarmService
 }
 
 // requestLogger emits one structured slog line per request.
