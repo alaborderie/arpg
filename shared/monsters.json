@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "monsters": [
     {
       "id": "fallen_imp",
@@ -7,7 +7,7 @@
       "level": 1,
       "max_health": 24,
       "armor": 4,
-      "resistances": { "fire": 0, "cold": 0, "lightning": 0 },
+      "resistances": { "fire": 0, "cold": 0, "lightning": 0, "poison": -10 },
       "damage": { "type": "physical", "base_min": 2, "base_max": 4 },
       "crit_chance": 0.05,
       "crit_multiplier": 1.5,
@@ -23,7 +23,7 @@
       "level": 3,
       "max_health": 48,
       "armor": 2,
-      "resistances": { "fire": 40, "cold": -20, "lightning": 0 },
+      "resistances": { "fire": 40, "cold": -20, "lightning": 0, "poison": 50 },
       "damage": { "type": "fire", "base_min": 5, "base_max": 9 },
       "crit_chance": 0.08,
       "crit_multiplier": 1.5,

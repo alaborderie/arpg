@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arpg.example/schemas/skills.schema.json",
+  "title": "Skill definitions",
+  "description": "The player's active-attack skills (G2): each replaces the basic attack when chosen at the start of a new game. Loaded identically by the Godot client; the Go server does not read this file today. See docs/0016.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "skills"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Bumped on any breaking change to this file's shape."
+    },
+    "skills": {
+      "type": "array",
+      "minItems": 3,
+      "items": { "$ref": "#/$defs/skill" }
+    }
+  },
+  "$defs": {
+    "skill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "name", "element", "kind", "range", "base_min", "base_max",
+        "actions_per_second", "crit_chance", "crit_multiplier"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "Stable snake_case identifier; never reused or renamed (persisted in save files)."
+        },
+        "name": { "type": "string", "minLength": 1 },
+        "element": {
+          "enum": ["physical", "fire", "cold", "lightning", "poison"],
+          "description": "Feeds the existing damage-type/resistance model (docs/0016): 'cold' is the renamed home for the seed list's 'ice' skills, and every skill is typed (no 'none' channel)."
+        },
+        "kind": {
+          "enum": ["melee", "ranged"],
+          "description": "melee swings like the base attack; ranged fires a projectile from range."
+        },
+        "range": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Metres, between body origins. Melee ~1.5-2.5, ranged ~6-14."
+        },
+        "base_min": { "type": "integer", "minimum": 0 },
+        "base_max": { "type": "integer", "minimum": 0 },
+        "actions_per_second": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Attacks per second for a melee skill, casts per second for a ranged one — see PlayerStats/docs/0016 for how this feeds attack_speed vs cast_speed."
+        },
+        "crit_chance": { "type": "number", "minimum": 0, "maximum": 1 },
+        "crit_multiplier": { "type": "number", "minimum": 1 }
+      }
+    }
+  }
+}

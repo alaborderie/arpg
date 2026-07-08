@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "skills": [
+    { "id": "quick_strike", "name": "Quick Strike", "element": "physical", "kind": "melee", "range": 1.8, "base_min": 4, "base_max": 7, "actions_per_second": 1.5, "crit_chance": 0.05, "crit_multiplier": 1.5 },
+    { "id": "heavy_slash", "name": "Heavy Slash", "element": "physical", "kind": "melee", "range": 2.0, "base_min": 8, "base_max": 14, "actions_per_second": 0.9, "crit_chance": 0.05, "crit_multiplier": 1.6 },
+    { "id": "whirlwind", "name": "Whirlwind", "element": "physical", "kind": "melee", "range": 2.2, "base_min": 5, "base_max": 8, "actions_per_second": 1.3, "crit_chance": 0.05, "crit_multiplier": 1.5 },
+    { "id": "puncture", "name": "Puncture", "element": "physical", "kind": "melee", "range": 1.6, "base_min": 3, "base_max": 6, "actions_per_second": 1.6, "crit_chance": 0.15, "crit_multiplier": 1.6 },
+    { "id": "crushing_blow", "name": "Crushing Blow", "element": "physical", "kind": "melee", "range": 1.8, "base_min": 7, "base_max": 11, "actions_per_second": 0.8, "crit_chance": 0.08, "crit_multiplier": 2.0 },
+    { "id": "cleave", "name": "Cleave", "element": "physical", "kind": "melee", "range": 2.4, "base_min": 6, "base_max": 9, "actions_per_second": 1.1, "crit_chance": 0.05, "crit_multiplier": 1.5 },
+    { "id": "riposte", "name": "Riposte", "element": "physical", "kind": "melee", "range": 1.6, "base_min": 5, "base_max": 8, "actions_per_second": 1.4, "crit_chance": 0.1, "crit_multiplier": 1.6 },
+    { "id": "earthshatter", "name": "Earthshatter", "element": "physical", "kind": "melee", "range": 2.5, "base_min": 12, "base_max": 18, "actions_per_second": 0.6, "crit_chance": 0.05, "crit_multiplier": 1.5 },
+
+    { "id": "molten_strike", "name": "Molten Strike", "element": "fire", "kind": "melee", "range": 1.8, "base_min": 6, "base_max": 10, "actions_per_second": 1.1, "crit_chance": 0.06, "crit_multiplier": 1.5 },
+    { "id": "frost_blades", "name": "Frost Blades", "element": "cold", "kind": "melee", "range": 2.5, "base_min": 5, "base_max": 8, "actions_per_second": 1.2, "crit_chance": 0.05, "crit_multiplier": 1.5 },
+    { "id": "static_strike", "name": "Static Strike", "element": "lightning", "kind": "melee", "range": 1.7, "base_min": 4, "base_max": 9, "actions_per_second": 1.3, "crit_chance": 0.1, "crit_multiplier": 1.6 },
+    { "id": "venom_slash", "name": "Venom Slash", "element": "poison", "kind": "melee", "range": 1.6, "base_min": 4, "base_max": 6, "actions_per_second": 1.4, "crit_chance": 0.05, "crit_multiplier": 1.5 },
+
+    { "id": "fireball", "name": "Fireball", "element": "fire", "kind": "ranged", "range": 9.0, "base_min": 10, "base_max": 16, "actions_per_second": 0.6, "crit_chance": 0.05, "crit_multiplier": 1.6 },
+    { "id": "flame_burst", "name": "Flame Burst", "element": "fire", "kind": "ranged", "range": 7.0, "base_min": 6, "base_max": 10, "actions_per_second": 0.9, "crit_chance": 0.05, "crit_multiplier": 1.5 },
+    { "id": "ember_shot", "name": "Ember Shot", "element": "fire", "kind": "ranged", "range": 8.0, "base_min": 4, "base_max": 7, "actions_per_second": 1.3, "crit_chance": 0.05, "crit_multiplier": 1.5 },
+    { "id": "magma_orb", "name": "Magma Orb", "element": "fire", "kind": "ranged", "range": 10.0, "base_min": 9, "base_max": 14, "actions_per_second": 0.7, "crit_chance": 0.06, "crit_multiplier": 1.6 },
+
+    { "id": "icebolt", "name": "Icebolt", "element": "cold", "kind": "ranged", "range": 8.0, "base_min": 4, "base_max": 6, "actions_per_second": 1.2, "crit_chance": 0.05, "crit_multiplier": 1.5 },
+    { "id": "ice_shard", "name": "Ice Shard", "element": "cold", "kind": "ranged", "range": 9.0, "base_min": 5, "base_max": 8, "actions_per_second": 1.0, "crit_chance": 0.05, "crit_multiplier": 1.5 },
+    { "id": "frost_spear", "name": "Frost Spear", "element": "cold", "kind": "ranged", "range": 10.0, "base_min": 7, "base_max": 11, "actions_per_second": 0.8, "crit_chance": 0.06, "crit_multiplier": 1.6 },
+    { "id": "blizzard_bolt", "name": "Blizzard Bolt", "element": "cold", "kind": "ranged", "range": 11.0, "base_min": 8, "base_max": 13, "actions_per_second": 0.7, "crit_chance": 0.05, "crit_multiplier": 1.5 },
+
+    { "id": "lightning_arrow", "name": "Lightning Arrow", "element": "lightning", "kind": "ranged", "range": 9.0, "base_min": 5, "base_max": 9, "actions_per_second": 1.1, "crit_chance": 0.08, "crit_multiplier": 1.6 },
+    { "id": "chain_lightning", "name": "Chain Lightning", "element": "lightning", "kind": "ranged", "range": 8.0, "base_min": 4, "base_max": 7, "actions_per_second": 1.2, "crit_chance": 0.08, "crit_multiplier": 1.6 },
+    { "id": "spark", "name": "Spark", "element": "lightning", "kind": "ranged", "range": 6.0, "base_min": 2, "base_max": 4, "actions_per_second": 2.0, "crit_chance": 0.1, "crit_multiplier": 1.5 },
+    { "id": "shock_pulse", "name": "Shock Pulse", "element": "lightning", "kind": "ranged", "range": 7.0, "base_min": 3, "base_max": 6, "actions_per_second": 1.6, "crit_chance": 0.08, "crit_multiplier": 1.6 },
+    { "id": "thunder_javelin", "name": "Thunder Javelin", "element": "lightning", "kind": "ranged", "range": 12.0, "base_min": 9, "base_max": 15, "actions_per_second": 0.6, "crit_chance": 0.07, "crit_multiplier": 1.7 },
+
+    { "id": "poison_arrow", "name": "Poison Arrow", "element": "poison", "kind": "ranged", "range": 9.0, "base_min": 4, "base_max": 7, "actions_per_second": 1.1, "crit_chance": 0.05, "crit_multiplier": 1.5 },
+    { "id": "plague_dart", "name": "Plague Dart", "element": "poison", "kind": "ranged", "range": 7.0, "base_min": 3, "base_max": 5, "actions_per_second": 1.3, "crit_chance": 0.05, "crit_multiplier": 1.5 },
+    { "id": "toxic_volley", "name": "Toxic Volley", "element": "poison", "kind": "ranged", "range": 8.0, "base_min": 3, "base_max": 6, "actions_per_second": 1.2, "crit_chance": 0.05, "crit_multiplier": 1.5 },
+    { "id": "blight_bomb", "name": "Blight Bomb", "element": "poison", "kind": "ranged", "range": 10.0, "base_min": 7, "base_max": 12, "actions_per_second": 0.7, "crit_chance": 0.05, "crit_multiplier": 1.5 },
+    { "id": "needle_spray", "name": "Needle Spray", "element": "poison", "kind": "ranged", "range": 6.0, "base_min": 2, "base_max": 4, "actions_per_second": 1.8, "crit_chance": 0.05, "crit_multiplier": 1.5 },
+
+    { "id": "split_arrow", "name": "Split Arrow", "element": "physical", "kind": "ranged", "range": 8.0, "base_min": 5, "base_max": 8, "actions_per_second": 1.1, "crit_chance": 0.07, "crit_multiplier": 1.6 },
+    { "id": "power_shot", "name": "Power Shot", "element": "physical", "kind": "ranged", "range": 9.0, "base_min": 8, "base_max": 13, "actions_per_second": 0.7, "crit_chance": 0.07, "crit_multiplier": 1.6 },
+    { "id": "stone_throw", "name": "Stone Throw", "element": "physical", "kind": "ranged", "range": 6.0, "base_min": 4, "base_max": 6, "actions_per_second": 1.3, "crit_chance": 0.05, "crit_multiplier": 1.5 }
+  ]
+}

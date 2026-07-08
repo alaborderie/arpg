@@ -40,11 +40,12 @@
         "resistances": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["fire", "cold", "lightning"],
+          "required": ["fire", "cold", "lightning", "poison"],
           "properties": {
             "fire": { "$ref": "#/$defs/resistance" },
             "cold": { "$ref": "#/$defs/resistance" },
-            "lightning": { "$ref": "#/$defs/resistance" }
+            "lightning": { "$ref": "#/$defs/resistance" },
+            "poison": { "$ref": "#/$defs/resistance" }
           }
         },
         "damage": {
