@@ -235,11 +235,13 @@ func _on_monster_spawned(monster: Monster) -> void:
 ## Rolls the dead monster's loot table and drops the result where it fell, and
 ## grants its XP reward to the player (G3, docs/0017) — same hook as loot, one
 ## more thing main.gd does in response to `died`. The corpse is still valid
-## during the `died` emission (freed right after).
+## during the `died` emission (freed right after). `monster.xp_reward()` and
+## the `is_elite()` passed into the loot roll already carry the elite
+## multipliers (G7, docs/0020) — main.gd itself stays unaware of the numbers.
 func _on_monster_died(monster: Monster) -> void:
 	_monsters_killed += 1
 	_player.gain_xp(monster.xp_reward())
-	var item: Dictionary = _loot_roller.roll_drop(monster.monster_id())
+	var item: Dictionary = _loot_roller.roll_drop(monster.monster_id(), monster.is_elite())
 	if item.is_empty():
 		return
 	var drop: GroundDrop = GROUND_DROP_SCENE.instantiate() as GroundDrop

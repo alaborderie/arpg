@@ -9,6 +9,12 @@ extends GdUnitTestSuite
 const SPAWNER_SEED: int = 11
 ## Upper bound of simulated frames a test waits for an outcome (60 Hz physics).
 const TIMEOUT_FRAMES: int = 900
+## G7 (docs/0020): an elite has 3x the HP of a normal spawn, so killing one
+## needs roughly 3x the hits (and thus 3x the swing time) once in range —
+## TIMEOUT_FRAMES's budget was tuned for a normal-HP kill plus walk time, so
+## the elite kill test gets its own generously larger bound instead of risking
+## flakiness on a tight multiple of it.
+const ELITE_TIMEOUT_FRAMES: int = 3000
 ## Frames simulated per polling step while waiting for an outcome.
 const STEP_FRAMES: int = 30
 ## Two frames of a chasing monster's movement (~0.1 m) plus pathing slack: how
@@ -31,7 +37,12 @@ func after_test() -> void:
 
 ## Instantiates main.tscn with a fixed rng_seed and the spawner knobs set before
 ## the scene enters the tree, so _ready picks everything up (test_loot.gd idiom).
-func _spawner_main(population: int, forced_id: String = "") -> Node3D:
+## [param forced_elite] (G7, docs/0020) mirrors [param forced_id]: -1 (default)
+## leaves the elite roll to the spawn stream, 0/1 force every spawn non-elite/
+## elite. Every population/geometry/kill-recovery test below pins 0 so an
+## unrelated elite roll never changes a monster's HP/speed mid-assertion; the
+## dedicated elite test pins 1.
+func _spawner_main(population: int, forced_id: String = "", forced_elite: int = -1) -> Node3D:
 	var packed: PackedScene = load("res://scenes/main/main.tscn")
 	var instance: Node3D = packed.instantiate() as Node3D
 	instance.set("rng_seed", SPAWNER_SEED)
@@ -42,6 +53,8 @@ func _spawner_main(population: int, forced_id: String = "") -> Node3D:
 	spawner.set("target_population", population)
 	if forced_id != "":
 		spawner.set("forced_monster_id", forced_id)
+	if forced_elite != -1:
+		spawner.set("forced_elite", forced_elite)
 	return instance
 
 
@@ -63,7 +76,7 @@ func _count_monsters(monsters: Node3D) -> int:
 
 
 func test_initial_spawns_fill_the_population_on_the_navmesh_ring() -> void:
-	var runner: GdUnitSceneRunner = scene_runner(_spawner_main(5))
+	var runner: GdUnitSceneRunner = scene_runner(_spawner_main(5, "", 0))
 	var main: Node3D = runner.scene()
 	var player: Player = main.get_node("Player")
 	var monsters: Node3D = main.get_node("Monsters")
@@ -94,7 +107,7 @@ func test_initial_spawns_fill_the_population_on_the_navmesh_ring() -> void:
 
 
 func test_population_recovers_after_a_kill() -> void:
-	var runner: GdUnitSceneRunner = scene_runner(_spawner_main(1, "fallen_imp"))
+	var runner: GdUnitSceneRunner = scene_runner(_spawner_main(1, "fallen_imp", 0))
 	var main: Node3D = runner.scene()
 	var player: Player = main.get_node("Player")
 	var monsters: Node3D = main.get_node("Monsters")
@@ -128,7 +141,7 @@ func test_population_recovers_after_a_kill() -> void:
 
 func test_far_drops_are_despawned_and_near_drops_kept() -> void:
 	# Population 0: no monsters to interfere; the cleanup pass still ticks.
-	var runner: GdUnitSceneRunner = scene_runner(_spawner_main(0))
+	var runner: GdUnitSceneRunner = scene_runner(_spawner_main(0, "", 0))
 	var main: Node3D = runner.scene()
 	var drops: Node3D = main.get_node("Drops")
 	await runner.simulate_frames(2)
@@ -152,4 +165,46 @@ func test_far_drops_are_despawned_and_near_drops_kept() -> void:
 	assert_bool(is_instance_valid(far_drop)).is_false()
 	assert_bool(is_instance_valid(near_drop)).is_true()
 	assert_int(drops.get_child_count()).is_equal(1)
+	await _free_main(runner, main)
+
+
+## G7 (issue #14, docs/0020): forcing elite via the knob spawns a monster with
+## the full elite pass applied — 3x HP, a bigger visual scale, slower move
+## speed — and it still dies through the unchanged Monster.take_hit -> died ->
+## main.gd chain, granting 3x XP same as a normal kill would (just tripled).
+func test_forced_elite_spawns_a_tougher_bigger_slower_monster_worth_more_xp() -> void:
+	var runner: GdUnitSceneRunner = scene_runner(_spawner_main(1, "fallen_imp", 1))
+	var main: Node3D = runner.scene()
+	var player: Player = main.get_node("Player")
+	var monsters: Node3D = main.get_node("Monsters")
+	await runner.simulate_frames(2)
+
+	assert_int(_count_monsters(monsters)).is_equal(1)
+	var elite: Monster = monsters.get_child(0) as Monster
+	var base_data: Dictionary = BalanceData.monster("fallen_imp")
+	var base_max_health: int = int(base_data.get("max_health", 0))
+	var base_move_speed: float = float(base_data.get("move_speed", 0.0))
+	var base_xp_reward: int = int(base_data.get("xp_reward", 0))
+	var elite_config: Dictionary = BalanceData.load_combat().get("elite", {})
+	var visual_scale: float = float(elite_config.get("visual_scale", 1.0))
+	var health_multiplier: float = float(elite_config.get("max_health_multiplier", 1.0))
+	var speed_multiplier: float = float(elite_config.get("move_speed_multiplier", 1.0))
+	var xp_multiplier: float = float(elite_config.get("xp_multiplier", 1.0))
+
+	assert_bool(elite.is_elite()).is_true()
+	assert_int(elite.max_health()).is_equal(int(round(base_max_health * health_multiplier)))
+	assert_float(elite.move_speed()).is_equal_approx(base_move_speed * speed_multiplier, 0.001)
+	var body_scale: Vector3 = (elite.get_node("Body") as Node3D).scale
+	assert_float(body_scale.x).is_equal_approx(visual_scale, 0.001)
+	assert_float(body_scale.y).is_equal_approx(visual_scale, 0.001)
+	assert_float(body_scale.z).is_equal_approx(visual_scale, 0.001)
+
+	var xp_before: int = player.total_xp()
+	player.order_attack(elite)
+	var frames: int = 0
+	while frames < ELITE_TIMEOUT_FRAMES and is_instance_valid(elite):
+		await runner.simulate_frames(STEP_FRAMES)
+		frames += STEP_FRAMES
+	assert_bool(is_instance_valid(elite)).is_false()
+	assert_int(player.total_xp() - xp_before).is_equal(int(round(base_xp_reward * xp_multiplier)))
 	await _free_main(runner, main)

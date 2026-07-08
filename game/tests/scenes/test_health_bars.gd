@@ -37,6 +37,9 @@ func _health_bar_main() -> Node3D:
 	var spawner: Node = instance.get_node("MonsterSpawner")
 	spawner.set("target_population", 1)
 	spawner.set("forced_monster_id", "fallen_imp")
+	# G7 (docs/0020): pin off so this swept-seed suite never has its forced
+	# fallen_imp randomly promoted to an elite (3x health, different loot bias).
+	spawner.set("forced_elite", 0)
 	return instance
 
 

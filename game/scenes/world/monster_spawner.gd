@@ -12,16 +12,23 @@ extends Node3D
 ## Design rationale (ring radii, the dedicated RNG stream, why the spawn stream
 ## is deliberately not saved) is in docs/0015.
 ##
-## Test knob: set [member target_population] / [member forced_monster_id] via
-## `.set()` before this node enters the tree — same idiom `main.gd`'s `rng_seed`
-## export already uses — for fully deterministic scene tests. Population 0
-## disables spawning outright; a nonzero population plus a forced id reproduces
-## a fixed roster without ever touching the spawn RNG stream (so it can't
-## perturb the loot/combat streams' sequences), matching the fixed two-imp
-## roster the M1-M4 scene tests were written against.
+## Test knob: set [member target_population] / [member forced_monster_id] /
+## [member forced_elite] via `.set()` before this node enters the tree — same
+## idiom `main.gd`'s `rng_seed` export already uses — for fully deterministic
+## scene tests. Population 0 disables spawning outright; a nonzero population
+## plus a forced id reproduces a fixed roster without ever touching the spawn
+## RNG stream (so it can't perturb the loot/combat streams' sequences),
+## matching the fixed two-imp roster the M1-M4 scene tests were written
+## against. [member forced_elite] mirrors that: -1 (default) lets the spawn
+## stream's elite roll decide per spawn, 0/1 force every spawn non-elite/elite
+## without ever drawing from the stream (G7, docs/0020) — every existing scene
+## test that pins a kill sequence to a swept seed now also pins this to 0, the
+## same "pin the new knob or get the full default experience" rule G1/G2 set.
 
 ## Default alive-population the spawner tries to maintain around the player.
-const DEFAULT_TARGET_POPULATION: int = 10
+## Halved 10 -> 5 for G7 (issue #14, docs/0020): fewer, spicier monsters now
+## that a fraction of them are elites.
+const DEFAULT_TARGET_POPULATION: int = 5
 ## Never spawn closer than this to the player — keeps a fresh spawn from
 ## dropping in right on top of them.
 const MIN_SPAWN_RADIUS: float = 14.0
@@ -51,6 +58,10 @@ const MONSTER_SCENE: PackedScene = preload("res://scenes/monster/monster.tscn")
 ## Non-empty forces every spawn to this monster id instead of picking from
 ## MONSTER_IDS (test knob, see class doc).
 @export var forced_monster_id: String = ""
+## -1 (default): the spawn stream's elite roll decides per spawn. 0/1: force
+## every spawn non-elite/elite, skipping that draw entirely (test knob, see
+## class doc; G7, docs/0020).
+@export var forced_elite: int = -1
 
 ## Emitted right after a monster is instanced and set up, so main.gd can wire
 ## its `died` signal the same way it always has (loot rolling unchanged).
@@ -62,6 +73,13 @@ var _drops: Node3D
 var _calculator: DamageCalculator
 var _combat_constants: Dictionary = {}
 var _monster_data_by_id: Dictionary = {}
+## The `elite` block of shared/combat.json (G7, docs/0020): multipliers Monster
+## applies when a spawn rolls elite, loaded once here and handed to every
+## Monster.setup() call so tuning the numbers never touches GDScript.
+var _elite_config: Dictionary = {}
+## Cached from _elite_config's `spawn_chance` so MonsterSpawnPicker.roll_is_elite
+## (pure domain math) never has to know about BalanceData/file access.
+var _elite_chance: float = 0.1
 var _rng: RngService
 ## Primed at TICK_INTERVAL so the first refill happens on the first tick after
 ## [member _map_ready] flips, not TICK_INTERVAL later.
@@ -95,6 +113,8 @@ func setup(
 	_rng = rng
 	var combat_data: Dictionary = BalanceData.load_combat()
 	_combat_constants = combat_data.get("combat", {})
+	_elite_config = combat_data.get("elite", {})
+	_elite_chance = float(_elite_config.get("spawn_chance", 0.1))
 	for monster_id: String in MONSTER_IDS:
 		var data: Dictionary = BalanceData.monster(monster_id)
 		if not data.is_empty():
@@ -180,10 +200,17 @@ func _spawn_at(spawn_position: Vector3) -> void:
 	var data: Dictionary = _monster_data_by_id.get(monster_id, {})
 	if data.is_empty():
 		return
+	# G7 (docs/0020): forced_elite skips the draw entirely, same reasoning
+	# forced_monster_id already documents — pinning a test's elite state must
+	# never shift the stream position later spawns/ring offsets depend on.
+	var is_elite: bool = (
+		forced_elite == 1 if forced_elite != -1
+		else MonsterSpawnPicker.roll_is_elite(_rng, _elite_chance)
+	)
 	var monster: Monster = MONSTER_SCENE.instantiate() as Monster
 	monster.position = spawn_position
 	_monsters.add_child(monster)
-	monster.setup(data, _combat_constants, _calculator, _player)
+	monster.setup(data, _combat_constants, _calculator, _player, is_elite, _elite_config)
 	monster_spawned.emit(monster)
 
 

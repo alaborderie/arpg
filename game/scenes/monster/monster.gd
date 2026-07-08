@@ -11,6 +11,15 @@ extends CharacterBody3D
 ## The [NavigationAgent3D] desired distances stay at 1.0: the baked navmesh floats
 ## ~0.5 above the ground plane and the agent's waypoint-advance check is a 3D
 ## distance, so anything close to 0.5 stalls agents in place (see player.gd).
+##
+## G7 (issue #14, docs/0020): a monster spawned as an ELITE ([method setup]'s
+## `is_elite`) gets a visual/stat pass — bigger, slower, tougher, worth more XP,
+## rarer loot — but keeps the same [NavigationAgent3D] radius and
+## [CollisionShape3D] capsule as a normal spawn: a visual-only scale-up, same
+## precedent G5 already set for `cinder_wraith`'s taller hood vs. its shared
+## capsule (docs/0018). Left unchanged deliberately rather than grown to match
+## the bigger silhouette; re-measure if a scaled-up elite is ever seen visibly
+## clipping through obstacles or stacking unrealistically with other monsters.
 
 ## Emitted once, right before the corpse is freed. main.gd listens and rolls loot
 ## (M3): position and `monster_id()` are still valid during the emission.
@@ -43,6 +52,14 @@ var _attack_range: float = 1.0
 var _seconds_between_attacks: float = 1.0
 ## Seconds until the next swing is allowed; 0 means ready.
 var _attack_cooldown: float = 0.0
+## G7 (issue #14, docs/0020): true when this spawn rolled (or was forced via
+## MonsterSpawner.forced_elite) an ELITE variant — bigger, slower, tougher,
+## worth more XP, and biased toward rarer loot. Set once in [method setup];
+## an elite never becomes non-elite or vice versa post-spawn.
+var _is_elite: bool = false
+## The `elite` block of shared/combat.json (multipliers), only ever non-empty
+## when [member _is_elite] is true — see [method _elite_multiplier].
+var _elite_config: Dictionary = {}
 ## Floating world-space bar above the monster's head (G4, issue #11). Built in
 ## _ready, before [method setup] runs, so a red default full bar exists the
 ## instant the monster is added to the tree.
@@ -76,22 +93,41 @@ func _ready() -> void:
 ## Injects everything this monster needs: its `monsters.json` entry, the `combat`
 ## constants object, the scene-shared calculator (one RNG stream, ADR 0004) and
 ## the player to hunt. Until this is called the monster stands inert.
+##
+## [param is_elite] and [param elite_config] are G7 additions (docs/0020):
+## MonsterSpawner decides elite-or-not (domain-testable via
+## [method MonsterSpawnPicker.roll_is_elite]) and hands the shared/combat.json
+## `elite` multiplier block straight through — this scene adapter only ever
+## applies the numbers, it never decides them.
 func setup(
 	data: Dictionary,
 	combat_constants: Dictionary,
 	calculator: DamageCalculator,
-	target: Player
+	target: Player,
+	is_elite: bool = false,
+	elite_config: Dictionary = {}
 ) -> void:
 	_data = data
 	_combat_constants = combat_constants
 	_calculator = calculator
 	_target = target
-	_health = Health.new(int(data.get("max_health", 1)))
+	_is_elite = is_elite
+	_elite_config = elite_config if is_elite else {}
+	_health = Health.new(
+		int(round(int(data.get("max_health", 1)) * _elite_multiplier("max_health_multiplier")))
+	)
 	_attack = CombatProfiles.attack_from_data(data)
-	_move_speed = float(data.get("move_speed", 0.0))
+	_move_speed = float(data.get("move_speed", 0.0)) * _elite_multiplier("move_speed_multiplier")
 	_attack_range = float(data.get("attack_range", 1.0))
 	_seconds_between_attacks = 1.0 / maxf(float(data.get("attack_speed", 1.0)), 0.01)
 	_build_visual(String(data.get("id", "")))
+	if _is_elite:
+		var scale: float = _elite_multiplier("visual_scale")
+		_body.scale = Vector3.ONE * scale
+	# Recomputed here (not left at _ready's default) now that elite state is
+	# known — the same visual_scale factor that grew the silhouette grows the
+	# bar's clearance above it, so it keeps the same ~0.3 m margin G5 tuned.
+	_health_bar.position = Vector3(0, HEALTH_BAR_HEIGHT * _elite_multiplier("visual_scale"), 0)
 	_update_health_bar()
 
 
@@ -106,12 +142,44 @@ func monster_id() -> String:
 
 ## This monster's `monsters.json` `xp_reward` — main.gd grants it to the player
 ## on death (G3, docs/0017), the same way it already reads loot off `_data`.
+## Elites (G7, docs/0020) grant `xp_multiplier` times as much.
 func xp_reward() -> int:
-	return int(_data.get("xp_reward", 0))
+	return int(round(int(_data.get("xp_reward", 0)) * _elite_multiplier("xp_multiplier")))
+
+
+## Whether this spawn is an ELITE variant (G7, docs/0020). main.gd reads this
+## the same way it already reads [method monster_id] to bias the loot roll
+## toward higher rarities.
+func is_elite() -> bool:
+	return _is_elite
+
+
+## [param key]'s value from the elite config, or 1.0 (no-op) when this monster
+## isn't elite or the key is missing — every elite-affecting stat computation
+## funnels through this so "not elite" is always exactly the pre-G7 numbers.
+func _elite_multiplier(key: String) -> float:
+	if not _is_elite:
+		return 1.0
+	return float(_elite_config.get(key, 1.0))
 
 
 func current_health() -> int:
 	return _health.current if _health != null else 0
+
+
+## This monster's max HP — an elite's (G7, docs/0020) is already
+## `max_health_multiplier` times the data value, computed once in [method setup].
+## Mirrors [method Player.max_health]; scene tests use it to assert the elite
+## HP bump directly rather than inferring it from a hit count.
+func max_health() -> int:
+	return _health.max_health if _health != null else 0
+
+
+## This monster's effective move speed — already scaled by
+## `move_speed_multiplier` for an elite (G7, docs/0020). Exposed for scene
+## tests the same reason [method max_health] is.
+func move_speed() -> float:
+	return _move_speed
 
 
 ## This monster's defence against one incoming hit, built fresh from data so a
