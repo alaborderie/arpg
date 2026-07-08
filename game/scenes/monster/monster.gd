@@ -62,6 +62,11 @@ var _body_parts: Array[MeshInstance3D] = []
 
 
 func _ready() -> void:
+	# G6 (docs/0019): free-aim casting needs to find every live monster without
+	# a container reference (Player and Projectile are siblings of whatever
+	# Node3D happens to hold monsters today) — a group is the boring, decoupled
+	# way to do that.
+	add_to_group("monsters")
 	_health_bar = HealthBar3D.new()
 	_health_bar.position = Vector3(0, HEALTH_BAR_HEIGHT, 0)
 	_health_bar.name = "HealthBar3D"

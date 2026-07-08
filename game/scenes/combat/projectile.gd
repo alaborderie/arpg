@@ -1,52 +1,93 @@
 class_name Projectile
 extends Node3D
-## A ranged skill's traveling hit (G2, docs/0016).
+## A ranged skill's traveling hit. Two modes, one scene (G6, docs/0019 —
+## beats forking into two projectile scenes for a difference that's purely
+## "how do I find what I hit"):
 ##
-## Deliberately the simplest thing that reads as "a projectile": target-locked
-## homing, no physics body, no collision detection, no ability to miss. Every
-## frame it steps toward whatever position [member _target] currently occupies
-## (so it still connects if the monster moves) and, once close enough, resolves
-## the hit through the same [DamageCalculator]/[DefenseProfile] pipeline melee
-## skills use and frees itself. A "real" projectile that can miss, be dodged, or
-## travel in a straight line past its original target is future work — this is
-## the boring version that proves the ranged-skill flow end to end.
+## - [constant Mode.HOMING] (G2, docs/0016): target-locked — every frame it
+##   steps toward wherever [member _target] currently is (so it still connects
+##   if the monster moves) and resolves on arrival. Used by the click-to-attack
+##   order path ([method Player._fire_projectile]), which already has a locked
+##   target.
+## - [constant Mode.DIRECTIONAL] (G6): no target. Flies at a constant velocity
+##   along a fixed direction, up to a maximum travel distance (the skill's
+##   range), damaging the first live monster it passes within [constant
+##   HIT_RADIUS] of — a per-physics-tick distance sweep over the "monsters"
+##   group, cheap at the ~5-10 monsters this game keeps alive. Used by Q-cast
+##   free aim ([method Player.cast_at]), which has an aim point but no target.
 ##
-## Adapter (ADR 0003): movement here is plain per-frame Vector3 math, not a game
-## rule; the rule (how much damage lands) still only ever comes from the
-## injected [DamageCalculator].
+## Neither mode has a physics body or collision detection, and neither can
+## miss its resolved victim — a "real" projectile that can whiff or be dodged
+## is future work either way. Both share [method _resolve_hit_on]: the actual
+## damage always comes from the injected [DamageCalculator]/[DefenseProfile]
+## pipeline, never from movement code (ADR 0003 — movement here is plain
+## per-frame Vector3 math, not a game rule).
 
-## Metres per second the projectile closes on its target.
+enum Mode { HOMING, DIRECTIONAL }
+
+## Metres per second the projectile travels, in either mode.
 const SPEED: float = 18.0
-## Distance at which the projectile is considered to have "arrived" and
-## resolves its hit.
+## Distance at which the projectile is considered to have "arrived" (homing)
+## or to have passed close enough to damage a monster (directional). Same
+## constant, same meaning either way: "close enough to land the hit".
 const HIT_RADIUS: float = 0.5
 ## Squared direction length under which we skip rotating (avoids look_at jitter).
 const FACING_EPSILON: float = 0.0001
 
+var _mode: Mode = Mode.HOMING
 var _target: Monster
+## Directional mode only: fixed unit direction and how far along it this
+## projectile has traveled/may travel before despawning untouched.
+var _direction: Vector3 = Vector3.ZERO
+var _traveled: float = 0.0
+var _max_distance: float = 0.0
 var _attack: AttackProfile
 var _calculator: DamageCalculator
 
 @onready var _body: MeshInstance3D = $Body
 
 
-## Hands over what to chase and how to resolve the hit on arrival. Call after
-## add_child, like [Monster.setup]/[GroundDrop.setup].
-func setup(target: Monster, attack: AttackProfile, calculator: DamageCalculator) -> void:
+## Target-locked homing setup (G2) — call after add_child, like
+## [Monster.setup]/[GroundDrop.setup].
+func setup_homing(target: Monster, attack: AttackProfile, calculator: DamageCalculator) -> void:
+	_mode = Mode.HOMING
 	_target = target
 	_attack = attack
 	_calculator = calculator
 	_tint_for_element(attack.damage_type)
 
 
+## Free-aim directional setup (G6, docs/0019): [param direction] must already
+## be a unit vector (callers normalize their aim direction once); [param
+## max_distance] is the casting skill's range. Call after add_child.
+func setup_directional(
+	direction: Vector3, max_distance: float, attack: AttackProfile, calculator: DamageCalculator
+) -> void:
+	_mode = Mode.DIRECTIONAL
+	_direction = direction
+	_max_distance = max_distance
+	_attack = attack
+	_calculator = calculator
+	_tint_for_element(attack.damage_type)
+	if _direction.length_squared() > FACING_EPSILON:
+		look_at(global_position + _direction, Vector3.UP)
+
+
 func _physics_process(delta: float) -> void:
+	if _mode == Mode.DIRECTIONAL:
+		_process_directional(delta)
+	else:
+		_process_homing(delta)
+
+
+func _process_homing(delta: float) -> void:
 	if _target == null or not is_instance_valid(_target) or _target.is_dead():
 		queue_free()
 		return
 	var to_target: Vector3 = _target.global_position - global_position
 	to_target.y = 0.0
 	if to_target.length() <= HIT_RADIUS:
-		_resolve_hit()
+		_resolve_hit_on(_target)
 		return
 	var direction: Vector3 = to_target.normalized()
 	global_position += direction * SPEED * delta
@@ -54,10 +95,49 @@ func _physics_process(delta: float) -> void:
 		look_at(global_position + direction, Vector3.UP)
 
 
-func _resolve_hit() -> void:
-	var defense: DefenseProfile = _target.defense_profile(_attack.damage_type)
+## Sweeps the "monsters" group for the nearest live one within [constant
+## HIT_RADIUS] before advancing (so a monster standing right at the spawn
+## point is caught on the very first tick), then steps [constant SPEED] *
+## delta further along [member _direction] and despawns once [member
+## _max_distance] is reached — free-fire at empty ground always ends this way.
+func _process_directional(delta: float) -> void:
+	var hit: Monster = _nearest_monster_in_hit_radius()
+	if hit != null:
+		_resolve_hit_on(hit)
+		return
+	var step: float = SPEED * delta
+	if _traveled + step >= _max_distance:
+		queue_free()
+		return
+	global_position += _direction * step
+	_traveled += step
+
+
+## The closest live monster (in the "monsters" group) within [constant
+## HIT_RADIUS] of the projectile's current position, or null. Deliberately a
+## simple O(live monster count) sweep per tick — cheap at the ~5-10 monsters
+## this game keeps alive (ADR 0015) — rather than a physics body/collision
+## shape, matching this scene's existing "no physics body" simplicity.
+func _nearest_monster_in_hit_radius() -> Monster:
+	var nearest: Monster = null
+	var nearest_distance: float = HIT_RADIUS
+	for node: Node in get_tree().get_nodes_in_group("monsters"):
+		var monster: Monster = node as Monster
+		if monster == null or monster.is_dead():
+			continue
+		var to_monster: Vector3 = monster.global_position - global_position
+		to_monster.y = 0.0
+		var distance: float = to_monster.length()
+		if distance <= nearest_distance:
+			nearest = monster
+			nearest_distance = distance
+	return nearest
+
+
+func _resolve_hit_on(monster: Monster) -> void:
+	var defense: DefenseProfile = monster.defense_profile(_attack.damage_type)
 	var result: DamageResult = _calculator.calculate_hit(_attack, defense)
-	_target.take_hit(result)
+	monster.take_hit(result)
 	queue_free()
 
 

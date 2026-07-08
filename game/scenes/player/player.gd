@@ -17,6 +17,18 @@ extends CharacterBody3D
 ## the old basic attack; ranged skills fire a [Projectile] instead of resolving
 ## the hit instantly (see _try_attack/_fire_projectile). docs/0016.
 ##
+## G6 adds [method cast_at]: main.gd's Q handler calls it with the mouse's
+## ground-plane point, and it casts the *equipped* skill from wherever the
+## player currently stands — no walk-into-range, no target lock. It shares the
+## cooldown (`_attack_cooldown`/`_seconds_between_attacks`) and the
+## damage-resolution core ([method _resolve_hit_on]) with the click-order path
+## in [method _try_attack]; only *how a victim is found* differs (a locked
+## target there, an aim direction here). Ranged fires a [Projectile] in its new
+## directional mode (constant velocity, no target, hits the first monster it
+## passes within [constant Projectile.HIT_RADIUS]); melee resolves instantly
+## against every live monster within `_attack_range` and
+## [constant CAST_ARC_DEGREES] of the aim direction. docs/0019.
+##
 ## G3 adds [method gain_xp]: main.gd calls it with a dead monster's `xp_reward`
 ## (docs/0017). Levelling appends one more contribution Dictionary
 ## ([ProgressionCurve.bonus_contribution]) to the same array equipment already
@@ -59,6 +71,11 @@ const PICKUP_RANGE: float = 1.8
 ## Height above the player's origin a fired projectile spawns at — roughly
 ## chest/weapon height, purely cosmetic.
 const PROJECTILE_SPAWN_HEIGHT: float = 1.0
+## Total width of a Q-cast melee swing's forward arc, centered on the aim
+## direction (G6, docs/0019) — e.g. a dead-on aim hits everything within 45
+## degrees either side. Chosen to read as "a swing in front of you", wider
+## than a pure line but nowhere near a full circle.
+const CAST_ARC_DEGREES: float = 90.0
 ## Height above the player's origin the health bar floats at — just clear of
 ## the capsule's head (G4, issue #11; the capsule is 1.8 m tall centered at
 ## y=0.9, so its top sits around y=1.8).
@@ -476,9 +493,7 @@ func _try_attack() -> void:
 	if _skill_kind == "ranged":
 		_fire_projectile()
 		return
-	var defense: DefenseProfile = _attack_target.defense_profile(_attack.damage_type)
-	var result: DamageResult = _calculator.calculate_hit(_attack, defense)
-	_attack_target.take_hit(result)
+	_resolve_hit_on(_attack_target)
 
 
 ## Ranged-skill attack (G2, docs/0016): a simple target-locked homing
@@ -489,7 +504,89 @@ func _fire_projectile() -> void:
 	var projectile: Projectile = PROJECTILE_SCENE.instantiate() as Projectile
 	get_parent().add_child(projectile)
 	projectile.global_position = global_position + Vector3.UP * PROJECTILE_SPAWN_HEIGHT
-	projectile.setup(_attack_target, _attack, _calculator)
+	projectile.setup_homing(_attack_target, _attack, _calculator)
+
+
+## The Q-cast entry point (G6, issue #13, docs/0019) — main.gd's `cast_primary`
+## handler calls this with the mouse's ground-plane point. Casts the equipped
+## skill from wherever the player currently stands: no walk-into-range (unlike
+## [method order_attack]), no target lock, gated by the exact same cooldown as
+## the click-to-attack path (a cast while on cooldown is silently ignored, no
+## queueing). Faces the player toward [param aim_point] (Y-zeroed, same
+## convention as movement facing) before the cast resolves — but only when the
+## cast actually fires, so a cooldown-gated Q press does nothing at all, not
+## even turn the character.
+func cast_at(aim_point: Vector3) -> void:
+	if _dead or _calculator == null or _attack_cooldown > 0.0:
+		return
+	var to_aim: Vector3 = aim_point - global_position
+	to_aim.y = 0.0
+	if to_aim.length_squared() > FACING_EPSILON:
+		_face(to_aim)
+	else:
+		# Aiming (near) on top of ourselves: keep whatever direction we already
+		# face rather than feeding a zero vector into range/arc math.
+		to_aim = -global_transform.basis.z
+	_attack_cooldown = _seconds_between_attacks
+	_cast(to_aim)
+
+
+## The small core [param aim_direction] fans out into a ranged or melee cast
+## (G6). Kept separate from [method cast_at] so a future slotted skill (G9)
+## or a support-modified one (G8) has one obvious place to plug in a different
+## skill's precomposed fields without touching the cooldown/facing contract
+## above.
+func _cast(aim_direction: Vector3) -> void:
+	if _skill_kind == "ranged":
+		_fire_projectile_directional(aim_direction)
+	else:
+		_melee_cast(aim_direction)
+
+
+## Fires a directional [Projectile] (G6, docs/0019): constant velocity along
+## [param direction], no target, travels up to `_attack_range` metres before
+## despawning, damaging the first live monster it passes within
+## [constant Projectile.HIT_RADIUS] — see [method Projectile.setup_directional].
+func _fire_projectile_directional(direction: Vector3) -> void:
+	var projectile: Projectile = PROJECTILE_SCENE.instantiate() as Projectile
+	get_parent().add_child(projectile)
+	projectile.global_position = global_position + Vector3.UP * PROJECTILE_SPAWN_HEIGHT
+	projectile.setup_directional(direction.normalized(), _attack_range, _attack, _calculator)
+
+
+## Resolves a melee Q-cast instantly (G6, docs/0019): every live monster in the
+## "monsters" group within `_attack_range` and [constant CAST_ARC_DEGREES] of
+## [param aim_direction] takes a hit via [method _resolve_hit_on] — a monster
+## standing (almost) on top of the player is hit regardless of angle, since a
+## direction to it is meaningless at zero distance. No auto-walk into range:
+## anything outside `_attack_range` right now is simply missed.
+func _melee_cast(aim_direction: Vector3) -> void:
+	var forward: Vector3 = aim_direction.normalized()
+	var half_arc: float = deg_to_rad(CAST_ARC_DEGREES / 2.0)
+	for node: Node in get_tree().get_nodes_in_group("monsters"):
+		var monster: Monster = node as Monster
+		if monster == null or monster.is_dead():
+			continue
+		var to_monster: Vector3 = monster.global_position - global_position
+		to_monster.y = 0.0
+		var distance: float = to_monster.length()
+		if distance > _attack_range:
+			continue
+		if distance > FACING_EPSILON and forward.angle_to(to_monster.normalized()) > half_arc:
+			continue
+		_resolve_hit_on(monster)
+
+
+## The shared damage-resolution core (G6, docs/0019): builds [param monster]'s
+## defense against `_attack`'s damage type, resolves the hit through the same
+## injected [DamageCalculator], and hands the result to
+## [method Monster.take_hit] — the one path every attack (click-order melee,
+## Q-cast melee) that lands an instant hit goes through, so a future change to
+## the pipeline only has to happen here.
+func _resolve_hit_on(monster: Monster) -> void:
+	var defense: DefenseProfile = monster.defense_profile(_attack.damage_type)
+	var result: DamageResult = _calculator.calculate_hit(_attack, defense)
+	monster.take_hit(result)
 
 
 ## Minimal M2 death: input orders are ignored and the body goes dark. A real

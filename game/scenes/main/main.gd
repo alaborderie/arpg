@@ -22,6 +22,11 @@ extends Node3D
 ## keeps taking input while everything with the default PAUSABLE mode (this
 ## node included) is frozen. A loaded save or a pinned `starting_skill_id`
 ## skips the screen entirely and applies the skill immediately.
+##
+## G6 (docs/0019): the `cast_primary` action (Q) casts the equipped skill at
+## the mouse's ground-plane point via [method Player.cast_at] — free-aim, no
+## target lock, resolved the instant the key is pressed (not deferred like a
+## click) since it never needs a physics-space query.
 
 ## The infinite plane clicks are projected onto — the ground sits at y = 0. Picking
 ## against a mathematical plane needs no colliders and works even when the click is
@@ -151,6 +156,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_has_pending_click = true
 	elif event.is_action_pressed("save_game"):
 		_save_game()
+	elif event.is_action_pressed("cast_primary"):
+		_cast_at_mouse()
 
 
 func _physics_process(_delta: float) -> void:
@@ -178,9 +185,32 @@ func _resolve_click(screen_pos: Vector2) -> void:
 		_player.order_pickup(drop)
 		return
 
-	var hit: Variant = GROUND_PLANE.intersects_ray(ray_origin, ray_direction)
+	var hit: Variant = _project_to_ground(screen_pos)
 	if hit != null:
 		_player.move_to(hit)
+
+
+## Q-cast (G6, issue #13, docs/0019): casts the equipped skill from wherever
+## the player currently stands, aimed at the mouse's ground-plane point — no
+## target lock and no walk-into-range, unlike a click order. Resolved
+## synchronously (unlike a click) because it only needs the same mathematical
+## ground-plane projection move-orders already use, never a physics-space
+## query, so there is no reason to defer it a physics tick.
+func _cast_at_mouse() -> void:
+	var hit: Variant = _project_to_ground(get_viewport().get_mouse_position())
+	if hit != null:
+		_player.cast_at(hit)
+
+
+## Projects a screen point onto the mathematical [constant GROUND_PLANE] — the
+## same click-to-move projection, shared with Q-cast aiming so both read the
+## mouse the same way (ADR 0010's ground-plane fallback, reused rather than
+## duplicated per docs/0019).
+func _project_to_ground(screen_pos: Vector2) -> Variant:
+	var camera: Camera3D = _camera_rig.camera()
+	var ray_origin: Vector3 = camera.project_ray_origin(screen_pos)
+	var ray_direction: Vector3 = camera.project_ray_normal(screen_pos)
+	return GROUND_PLANE.intersects_ray(ray_origin, ray_direction)
 
 
 ## Raycasts the physics space for the nearest clickable body (monster or drop)
