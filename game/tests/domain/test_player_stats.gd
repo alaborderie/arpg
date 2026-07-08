@@ -89,6 +89,74 @@ func test_max_health_pct_compounded_by_progression_curve_matches_1_1_pow_level()
 	)
 
 
+## G8 (docs/0021): `range_pct` mirrors `attack_speed_pct`'s "sum then scale
+## once" rule, letting a support extend both melee reach and ranged range
+## through the one shared `attack_range` field.
+func test_range_percentages_sum_then_scale_once() -> void:
+	var a: Dictionary = {"range_pct": 10.0}
+	var b: Dictionary = {"range_pct": 5.0}
+	var composed: Dictionary = PlayerStats.compose(BASE_PLAYER, [a, b])
+	# 1.8 * 1.15 = 2.07.
+	assert_float(float(composed.get("attack_range", 0.0))).is_equal_approx(2.07, 0.0001)
+
+
+## G8: `projectile_speed_pct`, same rule, scaling `faster_projectiles`.
+func test_projectile_speed_percentages_sum_then_scale_once() -> void:
+	var base_with_projectile_speed: Dictionary = BASE_PLAYER.duplicate(true)
+	base_with_projectile_speed["projectile_speed"] = 18.0
+	var support: Dictionary = {"projectile_speed_pct": 20.0}
+	var composed: Dictionary = PlayerStats.compose(base_with_projectile_speed, [support])
+	assert_float(float(composed.get("projectile_speed", 0.0))).is_equal_approx(21.6, 0.0001)
+
+
+## G8: `crit_multiplier_pct`, same rule, applied to whatever `crit_multiplier`
+## the skill/base already carries.
+func test_crit_multiplier_percentages_sum_then_scale_once() -> void:
+	var support: Dictionary = {"crit_multiplier_pct": 20.0}
+	var composed: Dictionary = PlayerStats.compose(BASE_PLAYER, [support])
+	# 1.5 * 1.2 = 1.8.
+	assert_float(float(composed.get("crit_multiplier", 0.0))).is_equal_approx(1.8, 0.0001)
+
+
+## G8: `damage_pct` scales the composed damage's base_min/base_max, on top of
+## whichever contribution's `damage` dict won the implicit-replace rule.
+func test_damage_percentages_scale_composed_damage() -> void:
+	var support: Dictionary = {"damage_pct": 25.0}
+	var composed: Dictionary = PlayerStats.compose(BASE_PLAYER, [support])
+	var damage: Dictionary = composed.get("damage", {})
+	# 4 * 1.25 = 5, 7 * 1.25 = 8.75 -> rounds to 9.
+	assert_int(int(damage.get("base_min", 0))).is_equal(5)
+	assert_int(int(damage.get("base_max", 0))).is_equal(9)
+
+
+## G8: `added_flat_damage` only applies when its element matches the composed
+## damage's own type (docs/0021 — the pipeline tracks one damage type per hit);
+## a mismatched element is inert, and a matching one adds before the
+## `damage_pct` scale (same order as ItemStats' "(implicit + added) * scale").
+func test_added_flat_damage_only_applies_to_the_matching_element() -> void:
+	var matching: Dictionary = {"added_flat_damage": {"physical": 4}}
+	var composed_match: Dictionary = PlayerStats.compose(BASE_PLAYER, [matching])
+	var damage_match: Dictionary = composed_match.get("damage", {})
+	assert_int(int(damage_match.get("base_min", 0))).is_equal(8)
+	assert_int(int(damage_match.get("base_max", 0))).is_equal(11)
+
+	var mismatched: Dictionary = {"added_flat_damage": {"fire": 4}}
+	var composed_mismatch: Dictionary = PlayerStats.compose(BASE_PLAYER, [mismatched])
+	var damage_mismatch: Dictionary = composed_mismatch.get("damage", {})
+	assert_int(int(damage_mismatch.get("base_min", 0))).is_equal(4)
+	assert_int(int(damage_mismatch.get("base_max", 0))).is_equal(7)
+
+
+## G8: `life_on_kill`/`added_projectiles` are flat, not percentage — every
+## contribution's value simply sums (stacking, docs/0021).
+func test_life_on_kill_and_added_projectiles_sum_flat_across_contributions() -> void:
+	var a: Dictionary = {"life_on_kill": 3, "added_projectiles": 1}
+	var b: Dictionary = {"life_on_kill": 3, "added_projectiles": 1}
+	var composed: Dictionary = PlayerStats.compose(BASE_PLAYER, [a, b])
+	assert_int(int(composed.get("life_on_kill", 0))).is_equal(6)
+	assert_int(int(composed.get("added_projectiles", 0))).is_equal(2)
+
+
 func test_composed_stats_feed_combat_profiles_end_to_end() -> void:
 	# The whole point of composition: the output is a drop-in entity Dictionary.
 	var weapon: Dictionary = {"damage": {"type": "fire", "base_min": 8, "base_max": 8}}

@@ -34,6 +34,10 @@ func _health_bar_main() -> Node3D:
 	var instance: Node3D = packed.instantiate() as Node3D
 	instance.set("rng_seed", HEALTH_BAR_SEED)
 	instance.set("starting_skill_id", "quick_strike")
+	# G8 (docs/0021): test_player_health_bar_reflects_a_level_up_heal crosses
+	# level 2 directly via gain_xp — without this knob that would now draw a
+	# support offer and pause the tree, which isn't what this suite tests.
+	instance.set("skip_support_offers", true)
 	var spawner: Node = instance.get_node("MonsterSpawner")
 	spawner.set("target_population", 1)
 	spawner.set("forced_monster_id", "fallen_imp")

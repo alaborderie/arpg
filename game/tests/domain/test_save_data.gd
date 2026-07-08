@@ -15,9 +15,10 @@ func _sample_equipped() -> Dictionary:
 
 
 func _sample_envelope() -> Dictionary:
+	var supports: Array[String] = ["increased_damage", "increased_damage"]
 	return SaveData.build(
-		42, 7, 9, 55, Vector3(1.0, 0.0, -2.5), _sample_bag(), _sample_equipped(),
-		"heavy_slash", 4, 57, 3, 1700000000
+		42, 7, 9, 13, 55, Vector3(1.0, 0.0, -2.5), _sample_bag(), _sample_equipped(),
+		"heavy_slash", 4, 57, supports, 3, 1700000000
 	)
 
 
@@ -27,11 +28,14 @@ func test_build_shapes_the_current_schema_version_envelope() -> void:
 	assert_int(int(envelope.get("master_seed", 0))).is_equal(42)
 	assert_int(int(envelope.get("combat_rng_state", 0))).is_equal(7)
 	assert_int(int(envelope.get("loot_rng_state", 0))).is_equal(9)
+	assert_int(int(envelope.get("supports_offer_rng_state", 0))).is_equal(13)
 	assert_int(int(envelope.get("saved_at_unix", 0))).is_equal(1700000000)
 	var player: Dictionary = envelope.get("player", {})
 	assert_int(int(player.get("health", 0))).is_equal(55)
 	assert_int(int(player.get("level", 0))).is_equal(4)
 	assert_int(int(player.get("xp", -1))).is_equal(57)
+	var supports: Array = player.get("supports", [])
+	assert_int(supports.size()).is_equal(2)
 	assert_int(int(envelope.get("progress", {}).get("monsters_killed", -1))).is_equal(3)
 
 
@@ -57,6 +61,11 @@ func test_round_trip_through_migrate_preserves_every_field() -> void:
 	assert_str(SaveData.skill_id_from_player(migrated)).is_equal("heavy_slash")
 	assert_int(SaveData.level_from_player(migrated)).is_equal(4)
 	assert_int(SaveData.xp_from_player(migrated)).is_equal(57)
+	assert_int(int(migrated.get("supports_offer_rng_state", 0))).is_equal(13)
+	var supports: Array[String] = SaveData.supports_from_player(migrated)
+	assert_int(supports.size()).is_equal(2)
+	assert_str(supports[0]).is_equal("increased_damage")
+	assert_str(supports[1]).is_equal("increased_damage")
 
 	var progress: Dictionary = migrated.get("progress", {})
 	assert_int(int(progress.get("monsters_killed", -1))).is_equal(3)
@@ -89,6 +98,9 @@ func test_migrate_v0_fills_in_defaults_for_fields_it_lacked() -> void:
 	# too, so it lands on level 1 / 0 XP (docs/0017) but keeps its kill count.
 	assert_int(SaveData.level_from_player(migrated)).is_equal(SaveData.DEFAULT_LEVEL)
 	assert_int(SaveData.xp_from_player(migrated)).is_equal(SaveData.DEFAULT_XP)
+	# G8's step (v3 -> v4) runs right after that: this save predates supports
+	# entirely too, so it lands on an empty owned-supports list (docs/0021).
+	assert_bool(SaveData.supports_from_player(migrated).is_empty()).is_true()
 	# Fields the legacy save did have survive untouched.
 	assert_int(int(migrated.get("master_seed", 0))).is_equal(5)
 	assert_int(int(migrated.get("player", {}).get("health", 0))).is_equal(80)
@@ -114,6 +126,7 @@ func test_migrate_v1_defaults_missing_skill_id() -> void:
 	assert_str(SaveData.skill_id_from_player(migrated)).is_equal(SaveData.DEFAULT_SKILL_ID)
 	assert_int(SaveData.level_from_player(migrated)).is_equal(SaveData.DEFAULT_LEVEL)
 	assert_int(SaveData.xp_from_player(migrated)).is_equal(SaveData.DEFAULT_XP)
+	assert_bool(SaveData.supports_from_player(migrated).is_empty()).is_true()
 
 
 ## G3's own migration step: a v2 save (levels didn't exist) has no
@@ -138,9 +151,37 @@ func test_migrate_v2_defaults_missing_level_and_xp() -> void:
 	assert_int(int(migrated.get("schema_version", -1))).is_equal(SaveData.CURRENT_SCHEMA_VERSION)
 	assert_int(SaveData.level_from_player(migrated)).is_equal(SaveData.DEFAULT_LEVEL)
 	assert_int(SaveData.xp_from_player(migrated)).is_equal(SaveData.DEFAULT_XP)
+	assert_bool(SaveData.supports_from_player(migrated).is_empty()).is_true()
 	# Fields the v2 save did have survive untouched.
 	assert_str(SaveData.skill_id_from_player(migrated)).is_equal("fireball")
 	assert_int(int(migrated.get("progress", {}).get("monsters_killed", -1))).is_equal(7)
+
+
+## G8's own migration step: a v3 save (supports didn't exist) has no
+## `player.supports` at all — exercised in isolation the same way the v1/v2
+## cases above test G2/G3's steps, since this is how a real "one version
+## behind" save will actually show up once G8 ships.
+func test_migrate_v3_defaults_missing_supports() -> void:
+	var v3_save: Dictionary = {
+		"schema_version": 3,
+		"saved_at_unix": 1700500000,
+		"master_seed": 13,
+		"combat_rng_state": "8",
+		"loot_rng_state": "10",
+		"player": {
+			"health": 100, "position": {"x": 0.0, "y": 0.0, "z": 0.0},
+			"bag": [], "equipped": {}, "skill_id": "fireball", "level": 5, "xp": 120,
+		},
+		"progress": {"monsters_killed": 9},
+	}
+	var migrated: Dictionary = SaveData.migrate(v3_save)
+	assert_bool(migrated.is_empty()).is_false()
+	assert_int(int(migrated.get("schema_version", -1))).is_equal(SaveData.CURRENT_SCHEMA_VERSION)
+	assert_bool(SaveData.supports_from_player(migrated).is_empty()).is_true()
+	# Fields the v3 save did have survive untouched.
+	assert_int(SaveData.level_from_player(migrated)).is_equal(5)
+	assert_int(SaveData.xp_from_player(migrated)).is_equal(120)
+	assert_int(int(migrated.get("progress", {}).get("monsters_killed", -1))).is_equal(9)
 
 
 func test_migrate_rejects_a_newer_schema_version() -> void:
@@ -174,8 +215,10 @@ func test_migrate_rejects_a_version_with_no_known_migration_path() -> void:
 func test_large_rng_state_survives_a_json_round_trip() -> void:
 	var huge_combat_state: int = 7952383842509584290
 	var huge_loot_state: int = -6871234509876543210
+	var empty_supports: Array[String] = []
 	var envelope: Dictionary = SaveData.build(
-		1, huge_combat_state, huge_loot_state, 100, Vector3.ZERO, [], {}, "quick_strike", 1, 0, 0, 0
+		1, huge_combat_state, huge_loot_state, 0, 100, Vector3.ZERO, [], {},
+		"quick_strike", 1, 0, empty_supports, 0, 0
 	)
 	var through_json: Variant = JSON.parse_string(JSON.stringify(envelope))
 	assert_bool(through_json is Dictionary).is_true()
