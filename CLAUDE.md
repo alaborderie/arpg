@@ -407,6 +407,31 @@ make validate-data   # validates shared/*.json against shared/schemas/*
   player, so `test_loot.gd`'s chase timeout grew 900 -> 2400 frames, the
   same bump `test_combat.gd` got in G1 for the same reason (docs/0015) — any
   new scene test fighting a forced monster from a cold start should use a
-  similarly generous polling timeout. Design rationale (why procedural over
+  similarly generous polling timeout.
+- **G6 — Free-aim casting: Q casts at the mouse cursor — DONE.** `cast_primary`
+  (Q, physical keycode 81) casts the equipped skill instantly from wherever
+  the player stands, aimed at the mouse's ground-plane point — no target
+  lock, no walk-into-range, click behavior unchanged. `Player.cast_at(aim_point:
+  Vector3)` is the whole seam: main.gd's Q handler and every scene test call
+  it directly (gdUnit warns injected `InputEvent`s don't transport headless).
+  It gates on the same cooldown as the auto-attack (a press while on cooldown
+  does nothing, not even the facing turn), then a private `_cast(aim_direction)`
+  core fans out to ranged or melee — the hook G8 (support modifiers, which
+  change what feeds `_attack`/`_attack_range` upstream) and G9 (W/E slots,
+  which would call the same `_cast` with a different skill's fields) both
+  build on without touching cooldown/facing. Ranged fires `Projectile` in a
+  new `Mode.DIRECTIONAL` (constant velocity along a fixed direction, up to
+  the skill's range, then despawns) alongside G2's original `Mode.HOMING`;
+  every tick it sweeps a new `"monsters"` Godot group for the nearest live
+  one within `HIT_RADIUS` (0.5 m) and resolves the hit if found — a monster
+  near the aim point is caught "for free" by this sweep, no separate homing
+  needed. Melee resolves instantly against every live monster in the
+  `"monsters"` group within skill range and a 90° forward arc centered on the
+  aim direction. Both modes share `Player._resolve_hit_on` (build defense,
+  run the same `DamageCalculator`, call `Monster.take_hit`) with the
+  click-order path, so death still routes through the unchanged
+  `Monster.take_hit -> died` chain. Touch has no Q equivalent yet (desktop-
+  first aiming, per the ticket); movement/pickup/click stay fully
+  touch-playable. Design in `docs/0019`. Design rationale (why procedural over
   downloaded assets, the per-monster silhouette numbers, the bake
   re-measurement) in docs/0018.
