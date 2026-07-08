@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arpg.example/schemas/supports.schema.json",
+  "title": "Support spell definitions",
+  "description": "G8: global passive modifiers offered as a pick-1-of-3 on most level-ups, applying to whichever skill is equipped (slot-2/3 arrive in G9). Loaded identically by the Godot client; the Go server does not read this file today. See docs/0021.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "supports"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Bumped on any breaking change to this file's shape."
+    },
+    "supports": {
+      "type": "array",
+      "minItems": 10,
+      "items": { "$ref": "#/$defs/support" }
+    }
+  },
+  "$defs": {
+    "support": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "description", "family", "stat", "value"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "Stable snake_case identifier; never reused or renamed (persisted in save files)."
+        },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "family": {
+          "enum": ["stat", "pipeline"],
+          "description": "'stat' flows through PlayerStats.compose alongside equipment/level contributions; 'pipeline' (added_projectiles) changes the cast pipeline itself (game/scenes/player/player.gd). Purely documentation/UI metadata — both families are summed the same way by SupportCatalog.contribution_for_owned."
+        },
+        "stat": {
+          "enum": [
+            "damage_pct",
+            "attack_cast_speed_pct",
+            "added_flat_damage",
+            "crit_chance_pct",
+            "crit_multiplier_pct",
+            "range_pct",
+            "projectile_speed_pct",
+            "life_on_kill",
+            "added_projectiles"
+          ],
+          "description": "Which PlayerStats.compose contribution key this support adds to; see game/domain/support_catalog.gd and game/domain/player_stats.gd for the exact math."
+        },
+        "element": {
+          "enum": ["physical", "fire", "cold", "lightning", "poison"],
+          "description": "Required only for stat 'added_flat_damage': the damage's own hit only gains the flat amount when the equipped skill's element matches (docs/0021 — the single-damage-type-per-hit pipeline has no other channel to carry an off-element bonus)."
+        },
+        "value": {
+          "type": "number",
+          "description": "Percentage for a '_pct' stat, a flat integer amount for added_flat_damage/life_on_kill/added_projectiles."
+        }
+      },
+      "if": {
+        "properties": { "stat": { "const": "added_flat_damage" } }
+      },
+      "then": {
+        "required": ["element"]
+      }
+    }
+  }
+}

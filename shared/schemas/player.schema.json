@@ -17,7 +17,8 @@
       "additionalProperties": false,
       "required": [
         "move_speed", "max_health", "armor", "damage",
-        "crit_chance", "crit_multiplier", "attack_speed", "attack_range"
+        "crit_chance", "crit_multiplier", "attack_speed", "attack_range",
+        "projectile_speed"
       ],
       "properties": {
         "move_speed": {
@@ -48,6 +49,11 @@
           "type": "number",
           "exclusiveMinimum": 0,
           "description": "Maximum distance (metres, between body origins) at which an attack connects."
+        },
+        "projectile_speed": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Metres per second a ranged skill's Projectile travels (G8, docs/0021's faster_projectiles support scales this via PlayerStats.compose's projectile_speed_pct); matches Projectile.SPEED's pre-G8 hard-coded value."
         }
       }
     }

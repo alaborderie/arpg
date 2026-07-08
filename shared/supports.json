@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "supports": [
+    {
+      "id": "added_projectiles",
+      "name": "Added Projectiles",
+      "description": "Fires one additional projectile in a small fan. No effect on melee skills.",
+      "family": "pipeline",
+      "stat": "added_projectiles",
+      "value": 1
+    },
+    {
+      "id": "increased_damage",
+      "name": "Increased Damage",
+      "description": "Increases the damage of every hit.",
+      "family": "stat",
+      "stat": "damage_pct",
+      "value": 15.0
+    },
+    {
+      "id": "increased_attack_cast_speed",
+      "name": "Increased Attack/Cast Speed",
+      "description": "Increases attack speed and cast speed.",
+      "family": "stat",
+      "stat": "attack_cast_speed_pct",
+      "value": 10.0
+    },
+    {
+      "id": "added_flat_fire_damage",
+      "name": "Added Fire Damage",
+      "description": "Adds flat fire damage to hits with a fire skill.",
+      "family": "stat",
+      "stat": "added_flat_damage",
+      "element": "fire",
+      "value": 3
+    },
+    {
+      "id": "added_flat_cold_damage",
+      "name": "Added Cold Damage",
+      "description": "Adds flat cold damage to hits with a cold skill.",
+      "family": "stat",
+      "stat": "added_flat_damage",
+      "element": "cold",
+      "value": 3
+    },
+    {
+      "id": "added_flat_lightning_damage",
+      "name": "Added Lightning Damage",
+      "description": "Adds flat lightning damage to hits with a lightning skill.",
+      "family": "stat",
+      "stat": "added_flat_damage",
+      "element": "lightning",
+      "value": 3
+    },
+    {
+      "id": "added_flat_poison_damage",
+      "name": "Added Poison Damage",
+      "description": "Adds flat poison damage to hits with a poison skill.",
+      "family": "stat",
+      "stat": "added_flat_damage",
+      "element": "poison",
+      "value": 3
+    },
+    {
+      "id": "increased_crit_chance",
+      "name": "Increased Critical Chance",
+      "description": "Increases critical strike chance.",
+      "family": "stat",
+      "stat": "crit_chance_pct",
+      "value": 4.0
+    },
+    {
+      "id": "increased_crit_multiplier",
+      "name": "Increased Critical Multiplier",
+      "description": "Increases critical strike damage multiplier.",
+      "family": "stat",
+      "stat": "crit_multiplier_pct",
+      "value": 15.0
+    },
+    {
+      "id": "increased_range",
+      "name": "Increased Range",
+      "description": "Increases melee reach and ranged skill range.",
+      "family": "stat",
+      "stat": "range_pct",
+      "value": 10.0
+    },
+    {
+      "id": "faster_projectiles",
+      "name": "Faster Projectiles",
+      "description": "Increases projectile travel speed.",
+      "family": "stat",
+      "stat": "projectile_speed_pct",
+      "value": 20.0
+    },
+    {
+      "id": "life_on_kill",
+      "name": "Life on Kill",
+      "description": "Heals a flat amount whenever a monster dies to your hit.",
+      "family": "stat",
+      "stat": "life_on_kill",
+      "value": 3
+    }
+  ]
+}

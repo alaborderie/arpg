@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "player": {
     "move_speed": 6.0,
     "max_health": 100,
@@ -8,6 +8,7 @@
     "crit_chance": 0.05,
     "crit_multiplier": 1.5,
     "attack_speed": 1.5,
-    "attack_range": 1.8
+    "attack_range": 1.8,
+    "projectile_speed": 18.0
   }
 }

@@ -61,3 +61,4 @@ validate-data: ## Validate shared/*.json against their JSON Schemas
 	check-jsonschema --schemafile shared/schemas/loot_tables.schema.json shared/loot_tables.json
 	check-jsonschema --schemafile shared/schemas/skills.schema.json shared/skills.json
 	check-jsonschema --schemafile shared/schemas/progression.schema.json shared/progression.json
+	check-jsonschema --schemafile shared/schemas/supports.schema.json shared/supports.json
