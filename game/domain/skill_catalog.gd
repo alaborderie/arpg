@@ -11,6 +11,13 @@ extends RefCounted
 ## index from the remaining pool, repeat — the same determinism contract
 ## [LootRoller]._roll_affixes documents: reordering the draw changes what a
 ## given RNG stream position produces next.
+##
+## G9 (docs/0022): [param excluding] lets a level-10/20 skill-slot offer leave
+## out skills the player already owns in another slot — filtered out of the
+## pool *before* the random draw, so which ids remain (not just how many) still
+## comes from a fixed, reproducible rule. Defaults to an empty array, so G2's
+## original one-shot starting-skill offer (which never excludes anything) is
+## unaffected.
 
 var _skills: Array[Dictionary] = []
 var _skills_by_id: Dictionary = {}
@@ -41,8 +48,11 @@ func all_skills() -> Array[Dictionary]:
 ## Draws [param count] distinct random skills from the full catalog via
 ## [param rng]. Returns fewer than [param count] only if the catalog itself has
 ## fewer skills than that (not expected in practice — see shared/skills.json).
-func offer(rng: RngService, count: int = 3) -> Array[Dictionary]:
-	var pool: Array[Dictionary] = _skills.duplicate()
+func offer(rng: RngService, count: int = 3, excluding: Array[String] = []) -> Array[Dictionary]:
+	var pool: Array[Dictionary] = []
+	for skill: Dictionary in _skills:
+		if not excluding.has(String(skill.get("id", ""))):
+			pool.append(skill)
 	var picked: Array[Dictionary] = []
 	var draws: int = mini(count, pool.size())
 	for _i: int in draws:
