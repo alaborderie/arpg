@@ -2,20 +2,13 @@ package httpapi
 
 import (
 	"encoding/json"
-	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
-func newTestRouter() http.Handler {
-	// Discard logs so test output stays clean.
-	return NewRouter(slog.New(slog.NewTextHandler(io.Discard, nil)))
-}
-
 func TestRoutes(t *testing.T) {
-	router := newTestRouter()
+	router := newTestRouter(t)
 
 	tests := []struct {
 		name       string
@@ -46,7 +39,7 @@ func TestHealthBody(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
 
-	newTestRouter().ServeHTTP(rec, req)
+	newTestRouter(t).ServeHTTP(rec, req)
 
 	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("content-type = %q, want application/json", ct)

@@ -26,3 +26,14 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
 }
+
+// errorResponse is the JSON body of every non-2xx response this server
+// returns.
+type errorResponse struct {
+	Error string `json:"error"`
+}
+
+// writeError writes a JSON error body with the given status code.
+func writeError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, errorResponse{Error: message})
+}

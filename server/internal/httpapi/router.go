@@ -6,6 +6,7 @@
 package httpapi
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"time"
@@ -14,24 +15,56 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
+// AuthService resolves bearer tokens to device identities and registers new
+// devices. Implemented by internal/auth.Service; handlers and middleware
+// depend on this interface so the M5 device-id stub can be replaced by real
+// auth later without reshaping the HTTP layer (docs/0013).
+type AuthService interface {
+	RegisterDevice(ctx context.Context, deviceID string) (token string, err error)
+	Authenticate(ctx context.Context, token string) (deviceID string, err error)
+}
+
+// SaveService is the save-sync business logic (last-write-wins upload and
+// download of one opaque blob per device). Implemented by
+// internal/saves.Service.
+type SaveService interface {
+	Upload(ctx context.Context, deviceID string, schemaVersion int64, payload []byte, savedAtUnix int64) (storedSavedAtUnix int64, err error)
+	Download(ctx context.Context, deviceID string) (schemaVersion int64, payload []byte, savedAtUnix int64, err error)
+}
+
 // NewRouter builds the HTTP handler for the whole server.
-func NewRouter(logger *slog.Logger) http.Handler {
+func NewRouter(logger *slog.Logger, auth AuthService, saves SaveService) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
 	r.Use(requestLogger(logger))
 
-	h := &handlers{logger: logger}
+	h := &handlers{logger: logger, auth: auth, saves: saves}
 
 	r.Get("/health", h.health)
+
+	r.Route("/v1", func(r chi.Router) {
+		r.Post("/auth/device", h.registerDevice)
+
+		r.Group(func(r chi.Router) {
+			r.Use(h.requireDeviceAuth)
+			r.Put("/save", h.uploadSave)
+			r.Get("/save", h.downloadSave)
+		})
+	})
 
 	return r
 }
 
-// handlers carries the dependencies shared by every route handler.
+// handlers carries the dependencies shared by every route handler. auth and
+// saves are interfaces (not the concrete service types) so handlers never
+// depend on how tokens are minted or how saves are persisted - only on the
+// two operations each needs.
 type handlers struct {
 	logger *slog.Logger
+	auth   AuthService
+	saves  SaveService
 }
 
 // requestLogger emits one structured slog line per request.
