@@ -1,8 +1,15 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "combat": {
     "armor_constant": 10.0,
     "max_physical_reduction": 0.9,
     "max_resistance": 0.75
+  },
+  "elite": {
+    "spawn_chance": 0.1,
+    "visual_scale": 1.6,
+    "move_speed_multiplier": 0.6,
+    "max_health_multiplier": 3.0,
+    "xp_multiplier": 3.0
   }
 }

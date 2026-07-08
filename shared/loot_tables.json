@@ -1,9 +1,9 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "rarities": [
-    { "id": "normal", "weight": 60, "affix_count_min": 0, "affix_count_max": 0 },
-    { "id": "magic", "weight": 30, "affix_count_min": 1, "affix_count_max": 2 },
-    { "id": "rare", "weight": 10, "affix_count_min": 3, "affix_count_max": 4 }
+    { "id": "normal", "weight": 60, "elite_weight": 15, "affix_count_min": 0, "affix_count_max": 0 },
+    { "id": "magic", "weight": 30, "elite_weight": 45, "affix_count_min": 1, "affix_count_max": 2 },
+    { "id": "rare", "weight": 10, "elite_weight": 40, "affix_count_min": 3, "affix_count_max": 4 }
   ],
   "tables": [
     {

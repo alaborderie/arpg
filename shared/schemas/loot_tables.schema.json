@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://arpg.example/schemas/loot_tables.schema.json",
   "title": "Loot tables and rarity model",
-  "description": "Per-monster drop tables and the global rarity weights/affix-count ranges loot rolls use. `monster_id` references shared/monsters.json ids and `base_pool` references shared/items.json base ids; cross-file integrity is asserted by the game data tests. Loaded identically by the Godot client and the Go server.",
+  "description": "Per-monster drop tables and the global rarity weights/affix-count ranges loot rolls use, including the elite-kill rarity bias (G7, docs/0020). `monster_id` references shared/monsters.json ids and `base_pool` references shared/items.json base ids; cross-file integrity is asserted by the game data tests. Loaded identically by the Godot client and the Go server.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "rarities", "tables"],
@@ -33,13 +33,18 @@
     "rarity": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "weight", "affix_count_min", "affix_count_max"],
+      "required": ["id", "weight", "elite_weight", "affix_count_min", "affix_count_max"],
       "properties": {
         "id": { "$ref": "#/$defs/id" },
         "weight": {
           "type": "integer",
           "minimum": 1,
-          "description": "Relative pick weight against the other rarities."
+          "description": "Relative pick weight against the other rarities for a normal kill."
+        },
+        "elite_weight": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Relative pick weight against the other rarities for an elite kill (G7, docs/0020) - LootRoller.roll_drop(is_elite=true) reads this column instead of `weight` for the same single weighted draw. Set higher on rarer tiers than `weight` to bias elite loot upward."
         },
         "affix_count_min": { "type": "integer", "minimum": 0 },
         "affix_count_max": {

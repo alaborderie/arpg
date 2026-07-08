@@ -2,10 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://arpg.example/schemas/combat.schema.json",
   "title": "Global combat constants",
-  "description": "Tunables of the damage-mitigation formulas themselves (not of any one entity). Loaded identically by the Godot client and the Go server, so it is the single source of truth for these numbers. See docs/0005-data-driven-balance.md.",
+  "description": "Tunables of the damage-mitigation formulas themselves (not of any one entity), plus the elite-monster modifier block (G7, docs/0020) applied uniformly to whichever monster a spawn's elite roll picks. Loaded identically by the Godot client and the Go server, so it is the single source of truth for these numbers. See docs/0005-data-driven-balance.md.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "combat"],
+  "required": ["schema_version", "combat", "elite"],
   "properties": {
     "schema_version": {
       "type": "integer",
@@ -33,6 +33,42 @@
           "minimum": 0,
           "maximum": 1,
           "description": "Hard cap on elemental resistance, as a fraction."
+        }
+      }
+    },
+    "elite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "spawn_chance", "visual_scale", "move_speed_multiplier",
+        "max_health_multiplier", "xp_multiplier"
+      ],
+      "properties": {
+        "spawn_chance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Probability MonsterSpawnPicker.roll_is_elite gives each spawn of becoming an elite variant."
+        },
+        "visual_scale": {
+          "type": "number",
+          "exclusiveMinimum": 1,
+          "description": "Uniform scale factor applied to an elite's built visual (Monster._build_visual's output) and its floating health bar's height."
+        },
+        "move_speed_multiplier": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Applied to move_speed for an elite; < 1 makes elites slower despite their bulk."
+        },
+        "max_health_multiplier": {
+          "type": "number",
+          "exclusiveMinimum": 1,
+          "description": "Applied to max_health for an elite."
+        },
+        "xp_multiplier": {
+          "type": "number",
+          "exclusiveMinimum": 1,
+          "description": "Applied to xp_reward for an elite kill."
         }
       }
     }

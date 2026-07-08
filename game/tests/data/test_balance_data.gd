@@ -38,6 +38,19 @@ func test_combat_constants_load() -> void:
 	assert_float(float(combat.get("armor_constant", 0.0))).is_greater(0.0)
 
 
+## G7 (issue #14, docs/0020): the elite-monster multiplier block.
+func test_elite_config_loads() -> void:
+	var elite: Dictionary = BalanceData.load_combat().get("elite", {})
+	assert_bool(elite.is_empty()).is_false()
+	var chance: float = float(elite.get("spawn_chance", -1.0))
+	assert_float(chance).is_greater(0.0)
+	assert_float(chance).is_less(1.0)
+	assert_float(float(elite.get("visual_scale", 0.0))).is_greater(1.0)
+	assert_float(float(elite.get("move_speed_multiplier", 0.0))).is_greater(0.0)
+	assert_float(float(elite.get("max_health_multiplier", 0.0))).is_greater(1.0)
+	assert_float(float(elite.get("xp_multiplier", 0.0))).is_greater(1.0)
+
+
 func test_monster_lookup_by_id_finds_the_m2_monster() -> void:
 	var imp: Dictionary = BalanceData.monster("fallen_imp")
 	assert_bool(imp.is_empty()).is_false()
@@ -94,6 +107,16 @@ func test_every_monster_has_a_loot_table() -> void:
 	var monsters: Array = BalanceData.load_monsters().get("monsters", [])
 	for entry: Variant in monsters:
 		assert_array(table_ids).contains([String((entry as Dictionary).get("id", ""))])
+
+
+## G7 (issue #14, docs/0020): every rarity must carry an elite_weight so
+## LootRoller.roll_drop(is_elite=true) always has a bias column to read for
+## every tier, never silently falling back to the normal `weight`.
+func test_every_rarity_has_an_elite_weight() -> void:
+	var rarities: Array = BalanceData.load_loot_tables().get("rarities", [])
+	for entry: Variant in rarities:
+		var rarity: Dictionary = entry as Dictionary
+		assert_int(int(rarity.get("elite_weight", -1))).is_greater(0)
 
 
 func test_affix_ranges_are_ordered() -> void:
