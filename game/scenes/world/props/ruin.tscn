@@ -1,0 +1,34 @@
+[gd_scene load_steps=5 format=3]
+
+[sub_resource type="BoxMesh" id="BoxMesh_base"]
+size = Vector3(1.6, 0.6, 1.6)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_base"]
+albedo_color = Color(0.5, 0.46, 0.4, 1)
+roughness = 1.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_stump"]
+size = Vector3(0.8, 1.2, 0.8)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_stump"]
+albedo_color = Color(0.44, 0.4, 0.36, 1)
+roughness = 1.0
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_ruin"]
+size = Vector3(1.6, 1.8, 1.6)
+
+[node name="Ruin" type="StaticBody3D"]
+
+[node name="Base" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
+mesh = SubResource("BoxMesh_base")
+material_override = SubResource("StandardMaterial3D_base")
+
+[node name="Stump" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.966, 0, 0.259, 0, 1, 0, -0.259, 0, 0.966, 0.15, 1.2, -0.1)
+mesh = SubResource("BoxMesh_stump")
+material_override = SubResource("StandardMaterial3D_stump")
+
+[node name="Collision" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("BoxShape3D_ruin")

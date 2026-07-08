@@ -20,7 +20,12 @@ const EXPECTED_ITEM_NAME: String = "Rusty Sword"
 const EXPECTED_ITEM_SLOT: String = "weapon"
 
 ## Upper bound of simulated frames a test lets the fight/walk run for (60 Hz).
-const TIMEOUT_FRAMES: int = 900
+## Grown 900 -> 2400 for G5 (issue #12, same bump test_combat.gd's chase
+## timeout got in G1/docs/0015): scattered low-poly props are now real
+## StaticBody3D obstacles the navmesh routes around, so a fixed fallen_imp
+## spawn can need a longer path to reach the player than an obstacle-free map
+## would. Generous polling timeouts absorb that; fixed frame counts don't.
+const TIMEOUT_FRAMES: int = 2400
 ## Frames simulated per polling step while waiting for an outcome.
 const STEP_FRAMES: int = 30
 

@@ -1,0 +1,46 @@
+[gd_scene load_steps=7 format=3]
+
+[sub_resource type="BoxMesh" id="BoxMesh_trunk"]
+size = Vector3(0.35, 1.6, 0.35)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_trunk"]
+albedo_color = Color(0.32, 0.22, 0.14, 1)
+roughness = 1.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_canopy_lower"]
+size = Vector3(1.8, 1.0, 1.8)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_canopy_lower"]
+albedo_color = Color(0.18, 0.32, 0.16, 1)
+roughness = 1.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_canopy_upper"]
+size = Vector3(1.2, 0.9, 1.2)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_canopy_upper"]
+albedo_color = Color(0.22, 0.38, 0.19, 1)
+roughness = 1.0
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_trunk"]
+size = Vector3(0.35, 1.6, 0.35)
+
+[node name="Tree" type="StaticBody3D"]
+
+[node name="Trunk" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0)
+mesh = SubResource("BoxMesh_trunk")
+material_override = SubResource("StandardMaterial3D_trunk")
+
+[node name="CanopyLower" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.707107, 0, 0.707107, 0, 1, 0, -0.707107, 0, 0.707107, 0, 1.9, 0)
+mesh = SubResource("BoxMesh_canopy_lower")
+material_override = SubResource("StandardMaterial3D_canopy_lower")
+
+[node name="CanopyUpper" type="MeshInstance3D" parent="."]
+transform = Transform3D(0.707107, 0, 0.707107, 0, 1, 0, -0.707107, 0, 0.707107, 0, 2.6, 0)
+mesh = SubResource("BoxMesh_canopy_upper")
+material_override = SubResource("StandardMaterial3D_canopy_upper")
+
+[node name="Collision" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0)
+shape = SubResource("BoxShape3D_trunk")
