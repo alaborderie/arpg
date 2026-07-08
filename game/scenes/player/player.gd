@@ -17,6 +17,17 @@ extends CharacterBody3D
 ## the old basic attack; ranged skills fire a [Projectile] instead of resolving
 ## the hit instantly (see _try_attack/_fire_projectile). docs/0016.
 ##
+## G3 adds [method gain_xp]: main.gd calls it with a dead monster's `xp_reward`
+## (docs/0017). Levelling appends one more contribution Dictionary
+## ([ProgressionCurve.bonus_contribution]) to the same array equipment already
+## feeds, so the per-level attack_speed/cast_speed/max_health bonus goes through
+## the exact same [PlayerStats.compose] funnel. `_recompose_stats` always syncs
+## `_health.max_health` to whatever the composed stats say it should be
+## (clamping `current` down if it shrank) but never heals on its own; a level-up
+## is the one and only place that explicitly heals to full, right after
+## recomposing for the new level — an equip/unequip recompose (no level change)
+## never touches current health.
+##
 ## Godot notes: [CharacterBody3D] is the engine's kinematic body — it moves by
 ## `move_and_slide()` from a `velocity` we set each physics tick, rather than by
 ## forces. The child [NavigationAgent3D] asks the NavigationServer for a path across
@@ -53,6 +64,9 @@ const PROJECTILE_SCENE: PackedScene = preload("res://scenes/combat/projectile.ts
 
 ## Emitted whenever the bag or the equipped slots change (pickup, equip, unequip).
 signal inventory_changed
+## Emitted whenever XP or level changes (a kill, or a restored save) — the XP
+## bar UI listens and re-reads [method xp_progress]/[method level] (G3, docs/0017).
+signal xp_changed
 
 ## Effective stats: base config composed with equipped items (see _recompose_stats).
 var _config: Dictionary = {}
@@ -68,6 +82,14 @@ var _skill_kind: String = "melee"
 ## Item base definitions from `shared/items.json`, indexed by id.
 var _item_bases_by_id: Dictionary = {}
 var _combat_constants: Dictionary = {}
+## The XP/level curve (G3, docs/0017), loaded once from `shared/progression.json`.
+var _progression: ProgressionCurve
+## Current level, starting at 1. Feeds one more contribution Dictionary into
+## _recompose_stats via _progression.bonus_contribution.
+var _level: int = 1
+## Total accumulated XP (not "XP into the current level" — see xp_progress()
+## for that breakdown). Persisted as-is (SaveData).
+var _xp: int = 0
 var _move_speed: float = DEFAULT_MOVE_SPEED
 var _attack_range: float = DEFAULT_ATTACK_RANGE
 var _seconds_between_attacks: float = 1.0 / DEFAULT_ATTACK_SPEED
@@ -96,9 +118,11 @@ func _ready() -> void:
 		if entry is Dictionary:
 			var base: Dictionary = entry as Dictionary
 			_item_bases_by_id[String(base.get("id", ""))] = base
-	# Health stays on the base maximum: no health affixes exist in M3, so gear
-	# never resizes the pool mid-fight.
+	# Health stays on the base maximum initially: no health affixes exist in M3,
+	# and level 1 (the default) carries no bonus (G3 changes this from level 2
+	# on — see _recompose_stats).
 	_health = Health.new(int(_base_config.get("max_health", DEFAULT_MAX_HEALTH)))
+	_progression = ProgressionCurve.new(BalanceData.load_progression().get("progression", {}))
 	_recompose_stats()
 
 
@@ -147,6 +171,28 @@ func current_health() -> int:
 	return _health.current if _health != null else 0
 
 
+## The current effective max health, after the level-bonus (and any future
+## item) contribution — this is what a health bar's denominator should read
+## (G4: this changes at runtime on a level-up, not just at boot).
+func max_health() -> int:
+	return _health.max_health if _health != null else 0
+
+
+## Current level (G3, docs/0017), starting at 1.
+func level() -> int:
+	return _level
+
+
+## Total accumulated XP. Read by main.gd to persist the save (SaveData).
+func total_xp() -> int:
+	return _xp
+
+
+## Everything the XP bar UI needs in one call — see [ProgressionCurve.progress_for_total_xp].
+func xp_progress() -> Dictionary:
+	return _progression.progress_for_total_xp(_xp) if _progression != null else {}
+
+
 ## This player's defence against one incoming hit, built fresh from the composed
 ## stats — equipped armour and resistances are already folded into `_config`.
 func defense_profile(incoming: AttackProfile.DamageType) -> DefenseProfile:
@@ -181,17 +227,46 @@ func skill_id() -> String:
 	return String(_skill.get("id", ""))
 
 
-## Restores health, position, bag and equipped items from a migrated save
-## envelope (M4 — see [SaveData] for the shape). Called by main once combat is
-## wired up; stats are recomposed at the end so restored gear is reflected
-## immediately, and a restored death (health <= 0) re-applies the death state.
+## Grants [param amount] XP (G3, docs/0017) — main.gd calls this from
+## `_on_monster_died` with the dead [Monster]'s `xp_reward`. A no-op for a
+## non-positive amount (never emits, never zero-heals). If the new total
+## crosses one or more level thresholds, recomposes stats for the new level
+## (so the attack_speed/cast_speed/max_health bonus takes effect immediately)
+## and heals to the new max — the one explicit level-up heal, documented in
+## docs/0017 as the classic ARPG choice; a bare recompose alone never heals
+## (see _recompose_stats). Always emits [signal xp_changed] on success so the
+## XP bar UI redraws even when a kill doesn't cross a level threshold.
+func gain_xp(amount: int) -> void:
+	if amount <= 0 or _progression == null:
+		return
+	_xp += amount
+	var new_level: int = _progression.level_for_total_xp(_xp)
+	if new_level != _level:
+		_level = new_level
+		_recompose_stats()
+		_health.current = _health.max_health
+	xp_changed.emit()
+
+
+## Restores health, position, bag, equipped items, level and XP from a migrated
+## save envelope (M4, G3 — see [SaveData] for the shape). Called by main once
+## combat is wired up. Level/XP are restored *before* the first recompose so
+## the restored level's max-health bonus is already in `_config` when the saved
+## health is clamped against it — clamping against the level-1 default max
+## first, then again after a second recompose, would silently cap a
+## higher-level save's health at the wrong ceiling. A restored death
+## (health <= 0) re-applies the death state.
 func load_state(save: Dictionary) -> void:
 	var player_data: Dictionary = save.get("player", {})
+	_level = SaveData.level_from_player(save)
+	_xp = SaveData.xp_from_player(save)
+	_recompose_stats()
 	_health.current = clampi(int(player_data.get("health", _health.max_health)), 0, _health.max_health)
 	global_position = SaveData.position_from_player(save)
 	_inventory.load_state(SaveData.bag_from_player(save), SaveData.equipped_from_player(save))
 	_recompose_stats()
 	inventory_changed.emit()
+	xp_changed.emit()
 	if _health.is_dead():
 		_die()
 
@@ -210,8 +285,9 @@ func unequip_slot(slot: String) -> void:
 		inventory_changed.emit()
 
 
-## Rebuilds the effective stats from base data + equipped items, and refreshes
-## everything derived from them. The one funnel through which gear acts (ADR 0011).
+## Rebuilds the effective stats from base data + equipped items + the current
+## level's bonus, and refreshes everything derived from them. The one funnel
+## through which gear (and now level) acts (ADR 0011, docs/0017).
 ##
 ## G2 (docs/0016): the active skill's damage/range/crit/speed replace the same
 ## fields `_base_config` (the unarmed `shared/player.json` baseline) used to
@@ -220,6 +296,17 @@ func unequip_slot(slot: String) -> void:
 ## one is equipped (the same "gear beats unarmed" precedent this pipeline
 ## already had). Melee skills read back `attack_speed`; ranged skills read
 ## `cast_speed` — see [PlayerStats.compose] for where both live.
+##
+## G3 (docs/0017): [ProgressionCurve.bonus_contribution] for the current level
+## is appended to `contributions` right alongside equipment — one more
+## Dictionary through the same funnel, no special-cased stat path. Afterwards,
+## `_health.max_health` is synced to whatever `_config.max_health` came out to;
+## if it changed, `current` is clamped down to fit (a hedge, not a heal — it
+## only ever lowers `current`, never raises it). Healing to full on an actual
+## level-up is [method gain_xp]'s job, done explicitly right after it calls
+## this — that keeps an equip/unequip-only recompose (no level change, and
+## today no item touches `max_health_pct` either) from ever refilling health as
+## a side effect.
 func _recompose_stats() -> void:
 	var skill_base: Dictionary = _base_config.duplicate(true)
 	if not _skill.is_empty():
@@ -229,6 +316,7 @@ func _recompose_stats() -> void:
 	for item: Dictionary in _inventory.equipped_items():
 		var base: Dictionary = _item_bases_by_id.get(String(item.get("base_id", "")), {})
 		contributions.append(ItemStats.contribution(item, base))
+	contributions.append(_progression.bonus_contribution(_level))
 	_config = PlayerStats.compose(skill_base, contributions)
 	_move_speed = float(_config.get("move_speed", DEFAULT_MOVE_SPEED))
 	_attack_range = float(_config.get("attack_range", DEFAULT_ATTACK_RANGE))
@@ -237,6 +325,10 @@ func _recompose_stats() -> void:
 		float(_config.get(speed_key, DEFAULT_ATTACK_SPEED)), 0.01
 	)
 	_attack = CombatProfiles.attack_from_data(_config)
+	var new_max_health: int = maxi(1, int(_config.get("max_health", _health.max_health)))
+	if new_max_health != _health.max_health:
+		_health.max_health = new_max_health
+		_health.current = mini(_health.current, new_max_health)
 
 
 ## Applies an already-resolved hit. Feedback here, rules in the domain.

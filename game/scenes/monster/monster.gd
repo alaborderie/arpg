@@ -64,6 +64,12 @@ func monster_id() -> String:
 	return String(_data.get("id", ""))
 
 
+## This monster's `monsters.json` `xp_reward` — main.gd grants it to the player
+## on death (G3, docs/0017), the same way it already reads loot off `_data`.
+func xp_reward() -> int:
+	return int(_data.get("xp_reward", 0))
+
+
 func current_health() -> int:
 	return _health.current if _health != null else 0
 

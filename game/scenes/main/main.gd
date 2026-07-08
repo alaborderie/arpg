@@ -96,6 +96,9 @@ var _monsters_killed: int = 0
 @onready var _spawner: MonsterSpawner = $MonsterSpawner
 @onready var _inventory_panel: InventoryPanel = $InventoryPanel
 @onready var _skill_choice_ui: SkillChoiceUI = $SkillChoiceUI
+## The XP bar (G3, docs/0017): a dumb view over the player's level/XP, the same
+## idiom as _inventory_panel — redrawn on the player's `xp_changed` signal.
+@onready var _xp_bar: XPBar = $XPBar
 @onready var _save_button: Button = $SaveUI/SaveButton
 ## Cloud-save sync adapter (M5, ADR 0013). `SyncConfig.enabled = false` in a
 ## test's setup opts a scene instance out entirely, the same idiom pinning
@@ -128,6 +131,7 @@ func _ready() -> void:
 	_skill_catalog = SkillCatalog.new(BalanceData.load_skills())
 	_player.setup_combat(_calculator)
 	_inventory_panel.setup(_player)
+	_xp_bar.setup(_player)
 	_spawner.monster_spawned.connect(_on_monster_spawned)
 	_spawner.setup(_player, _monsters, _drops, _calculator, _spawn_rng)
 	_skill_choice_ui.skill_chosen.connect(_on_skill_chosen)
@@ -198,10 +202,13 @@ func _on_monster_spawned(monster: Monster) -> void:
 	monster.died.connect(_on_monster_died)
 
 
-## Rolls the dead monster's loot table and drops the result where it fell. The
-## corpse is still valid during the `died` emission (freed right after).
+## Rolls the dead monster's loot table and drops the result where it fell, and
+## grants its XP reward to the player (G3, docs/0017) — same hook as loot, one
+## more thing main.gd does in response to `died`. The corpse is still valid
+## during the `died` emission (freed right after).
 func _on_monster_died(monster: Monster) -> void:
 	_monsters_killed += 1
+	_player.gain_xp(monster.xp_reward())
 	var item: Dictionary = _loot_roller.roll_drop(monster.monster_id())
 	if item.is_empty():
 		return
@@ -229,6 +236,8 @@ func _save_game() -> void:
 		_player.inventory().bag(),
 		_player.inventory().equipped_by_slot(),
 		_player.skill_id(),
+		_player.level(),
+		_player.total_xp(),
 		_monsters_killed,
 		int(Time.get_unix_time_from_system())
 	)
