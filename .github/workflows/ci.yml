@@ -51,6 +51,7 @@ jobs:
       - run: check-jsonschema --schemafile shared/schemas/items.schema.json shared/items.json
       - run: check-jsonschema --schemafile shared/schemas/loot_tables.schema.json shared/loot_tables.json
       - run: check-jsonschema --schemafile shared/schemas/skills.schema.json shared/skills.json
+      - run: check-jsonschema --schemafile shared/schemas/progression.schema.json shared/progression.json
 
   game:
     name: Game (Godot domain tests)

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "progression": {
+    "max_level": 20,
+    "xp_base": 20,
+    "xp_growth": 1.2,
+    "level_bonus_pct": 10.0
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arpg.example/schemas/progression.schema.json",
+  "title": "XP/level curve and per-level bonuses",
+  "description": "G3: the player's XP curve and the flat per-level bonus percentage applied to attack_speed/cast_speed/max_health, compounded multiplicatively across levels. Loaded identically by the Godot client; the Go server does not read this file today (see docs/0017). Killing a monster grants its monsters.json xp_reward.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "progression"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Bumped on any breaking change to this file's shape."
+    },
+    "progression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_level", "xp_base", "xp_growth", "level_bonus_pct"],
+      "properties": {
+        "max_level": {
+          "type": "integer",
+          "minimum": 2,
+          "description": "The level at which XP gain stops raising the level further (the bar shows full/maxed)."
+        },
+        "xp_base": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "XP required to go from level 1 to level 2 (ProgressionCurve.xp_base * xp_growth^0)."
+        },
+        "xp_growth": {
+          "type": "number",
+          "exclusiveMinimum": 1,
+          "description": "Multiplier applied to the xp-to-next-level requirement per level (xp_base * xp_growth^(level-1)). Must exceed 1 so the curve strictly increases."
+        },
+        "level_bonus_pct": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Percentage bonus to attack_speed/cast_speed/max_health per level, compounded multiplicatively: effective multiplier at level L is (1 + level_bonus_pct/100)^(L-1). See ProgressionCurve.bonus_contribution and docs/0017 for how this feeds PlayerStats.compose."
+        }
+      }
+    }
+  }
+}
