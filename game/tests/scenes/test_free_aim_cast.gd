@@ -213,3 +213,96 @@ func test_a_monster_off_the_aim_line_is_not_hit_by_free_fire() -> void:
 	assert_bool(is_instance_valid(monster)).is_true()
 	assert_int(monster.current_health()).is_equal(initial_health)
 	await _free_main(runner, main)
+
+
+## G10 (issue #17, docs/0023): the primary playtest bug — a directional shot
+## aimed dead-on at a chasing monster would still whiff because the monster
+## drifted out of the (old, narrow) hit corridor during the projectile's
+## flight. Aim assist looks up a snap target at cast time and fires it as
+## [constant Projectile.Mode.HOMING] instead, which re-tracks the monster
+## every tick and therefore cannot be outrun by its own continued chase
+## movement. This lets the chaser close to somewhere in the 5-8 m band the
+## ticket calls out — still clearly still approaching, nowhere near its own
+## 1.5 m attack range — then fires exactly once at wherever it stands *right
+## now* and proves the hit lands despite the monster moving throughout the
+## flight.
+func test_ranged_q_cast_hits_a_moving_monster_via_aim_assist() -> void:
+	var runner: GdUnitSceneRunner = scene_runner(_cast_main(RANGED_SKILL_ID))
+	var main: Node3D = runner.scene()
+	var player: Player = main.get_node("Player")
+	var monsters: Node3D = main.get_node("Monsters")
+	await runner.simulate_frames(2)
+
+	var monster: Monster = monsters.get_child(0) as Monster
+	var frames: int = 0
+	while frames < TIMEOUT_FRAMES and is_instance_valid(monster):
+		var gap: Vector3 = monster.global_position - player.global_position
+		gap.y = 0.0
+		if gap.length() <= 8.0:
+			break
+		await runner.simulate_frames(STEP_FRAMES)
+		frames += STEP_FRAMES
+	assert_bool(is_instance_valid(monster)).is_true()
+
+	var pre_gap: Vector3 = monster.global_position - player.global_position
+	pre_gap.y = 0.0
+	# Comfortably not adjacent (nowhere near quick_strike/melee range) and
+	# still within fireball's 9 m range — the "5-8 m, still closing" case.
+	assert_float(pre_gap.length()).is_greater(2.5)
+	assert_float(pre_gap.length()).is_less_equal(9.0)
+
+	var initial_health: int = monster.current_health()
+	player.cast_at(monster.global_position)
+	assert_int(_count_projectiles(main)).is_equal(1)
+
+	# Let the shot's whole flight play out (comfortably longer than any
+	# in-range travel time at Projectile.SPEED) while the monster keeps
+	# closing in — the exact window the old directional-only miss bug lived in.
+	var flight_frames: int = 0
+	while flight_frames < 180 and _count_projectiles(main) > 0:
+		await runner.simulate_frames(5)
+		flight_frames += 5
+
+	assert_int(_count_projectiles(main)).is_equal(0)
+	assert_bool(is_instance_valid(monster)).is_true()
+	assert_int(monster.current_health()).is_less(initial_health)
+	await _free_main(runner, main)
+
+
+## G10 (issue #17, docs/0023): G8's `added_projectiles` fan (docs/0021) and
+## the new aim assist must coexist — a fanned cast's center projectile still
+## snaps to homing on a monster near the aim line, while the rest of the fan
+## keeps flying directional, with neither mechanism erroring or swallowing
+## the hit.
+func test_fan_and_aim_assist_coexist() -> void:
+	var runner: GdUnitSceneRunner = scene_runner(_cast_main(RANGED_SKILL_ID))
+	var main: Node3D = runner.scene()
+	var player: Player = main.get_node("Player")
+	var monsters: Node3D = main.get_node("Monsters")
+	await runner.simulate_frames(2)
+
+	# Player.add_support is the documented seam (docs/0021) for granting a
+	# support deterministically, bypassing the level-up RNG offer/UI.
+	player.add_support("added_projectiles")
+
+	var monster: Monster = monsters.get_child(0) as Monster
+	await _wait_until_within_range(runner, player, monster, 9.0)
+	assert_bool(is_instance_valid(monster)).is_true()
+	var initial_health: int = monster.current_health()
+
+	player.cast_at(monster.global_position)
+	# 1 (base) + 1 (added_projectiles) — the fan the ticket asks to keep working.
+	assert_int(_count_projectiles(main)).is_equal(2)
+
+	var frames: int = 0
+	while frames < TIMEOUT_FRAMES and _count_projectiles(main) > 0:
+		await runner.simulate_frames(STEP_FRAMES)
+		frames += STEP_FRAMES
+
+	assert_int(_count_projectiles(main)).is_equal(0)
+	assert_bool(player.is_dead()).is_false()
+	# At least the homed shot must have connected — the fan + aim-assist
+	# combination must not silently swallow the hit.
+	if is_instance_valid(monster):
+		assert_int(monster.current_health()).is_less(initial_health)
+	await _free_main(runner, main)

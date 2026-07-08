@@ -30,12 +30,22 @@ enum Mode { HOMING, DIRECTIONAL }
 ## `projectile_speed` baseline). G8 (docs/0021): [Player] now passes its own
 ## composed `projectile_speed` (`faster_projectiles` support scales it via
 ## `PlayerStats.compose`'s `projectile_speed_pct`), so this constant is only
-## ever the unmodified value in practice.
-const SPEED: float = 18.0
+## ever the unmodified value in practice. G10 (issue #17, docs/0023): raised
+## 18 -> 28 alongside `shared/player.json`'s `projectile_speed` — the
+## playtest-reported "ranged feels weak" bug was largely a directional shot's
+## ~0.3-0.5 s flight time giving a chasing monster time to drift out of the
+## (old, narrower) hit corridor before arrival.
+const SPEED: float = 28.0
 ## Distance at which the projectile is considered to have "arrived" (homing)
 ## or to have passed close enough to damage a monster (directional). Same
-## constant, same meaning either way: "close enough to land the hit".
-const HIT_RADIUS: float = 0.5
+## constant, same meaning either way: "close enough to land the hit". G10
+## (issue #17, docs/0023): widened 0.5 -> 1.0 for directional forgiveness —
+## the primary playtest bug (aimed shots whiffing moving monsters). At
+## [constant SPEED] = 28 m/s and the project's 60 Hz physics tick
+## (`ProjectSettings` default, unmodified), one tick advances ~0.47 m, still
+## comfortably under this radius — a monster can't be skipped over ("tunnel"
+## through the sweep) between two consecutive samples.
+const HIT_RADIUS: float = 1.0
 ## Squared direction length under which we skip rotating (avoids look_at jitter).
 const FACING_EPSILON: float = 0.0001
 

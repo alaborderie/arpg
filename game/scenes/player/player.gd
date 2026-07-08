@@ -113,6 +113,19 @@ const HEALTH_BAR_COLOR: Color = Color(0.25, 0.75, 0.3)
 ## "a fan from one cast", nowhere near the melee arc's 90 degrees.
 const SUPPORT_PROJECTILE_FAN_DEGREES: float = 12.0
 
+## G10 (issue #17, docs/0023): aim-assist snap radius for a free-aim ranged
+## cast. At cast time (not per-tick in [Projectile]) we look for the live
+## monster whose position is closest to the aim *line* — the ray from the
+## caster's position along the aim direction, out to the casting slot's own
+## range — and, if its perpendicular distance to that line is within this
+## radius, snap the cast onto it with [method Projectile.setup_homing]
+## instead of firing a pure [constant Projectile.Mode.DIRECTIONAL] shot. This
+## is deliberately generous (bigger than [constant Projectile.HIT_RADIUS]):
+## it is what makes an aimed shot at a *moving* monster reliable, since a
+## homing projectile re-tracks its target every tick and therefore cannot
+## whiff from lateral drift during flight, unlike a fixed-direction shot.
+const AIM_ASSIST_RADIUS: float = 1.5
+
 const PROJECTILE_SCENE: PackedScene = preload("res://scenes/combat/projectile.tscn")
 
 ## Emitted whenever the bag or the equipped slots change (pickup, equip, unequip).
@@ -773,19 +786,68 @@ func _cast(aim_direction: Vector3, slot: int) -> void:
 ## either side for an even count) — this is the "small fan" the ticket asks
 ## for, and it works identically whether one or several are in the air, so a
 ## base cast (count 1) is just a fan of one with a zero offset.
+##
+## G10 (issue #17, docs/0023): aim assist looks up ONE snap target (see
+## [method _find_aim_assist_target]) for the whole fan, computed once here at
+## cast time — never per-tick in [Projectile]. Only the fan's center-most
+## projectile (index `(count - 1) / 2`, integer division — the exact center
+## for an odd count, the one just left of center for an even count) is
+## switched to [method Projectile.setup_homing] on that target; every other
+## projectile in the fan keeps flying its own fanned direction as a plain
+## [constant Projectile.Mode.DIRECTIONAL] shot. A single un-fanned cast
+## (`count == 1`) is the common case: it homes exactly when a target was
+## found and flies directional otherwise, which is the whole free-aim/aim-
+## assist behavior this ticket asks for.
 func _fire_projectile_directional(direction: Vector3, slot: int) -> void:
 	var forward: Vector3 = direction.normalized()
 	var count: int = 1 + _added_projectiles
+	var assist_target: Monster = _find_aim_assist_target(forward, _slot_attack_ranges[slot])
+	var homing_index: int = (count - 1) / 2
 	for i: int in count:
 		var angle_degrees: float = (float(i) - float(count - 1) / 2.0) * SUPPORT_PROJECTILE_FAN_DEGREES
 		var fanned_direction: Vector3 = forward.rotated(Vector3.UP, deg_to_rad(angle_degrees))
 		var projectile: Projectile = PROJECTILE_SCENE.instantiate() as Projectile
 		get_parent().add_child(projectile)
 		projectile.global_position = global_position + Vector3.UP * PROJECTILE_SPAWN_HEIGHT
-		projectile.setup_directional(
-			fanned_direction, _slot_attack_ranges[slot], _slot_attacks[slot], _calculator,
-			_projectile_speed
-		)
+		if assist_target != null and i == homing_index:
+			projectile.setup_homing(assist_target, _slot_attacks[slot], _calculator, _projectile_speed)
+		else:
+			projectile.setup_directional(
+				fanned_direction, _slot_attack_ranges[slot], _slot_attacks[slot], _calculator,
+				_projectile_speed
+			)
+
+
+## G10 (issue #17, docs/0023): the aim-assist lookup for a free-aim ranged
+## cast. Scans the "monsters" group for the live monster whose perpendicular
+## distance to the aim ray — from [member global_position] along [param
+## direction] (already a unit vector), clamped to [param max_distance] — is
+## smallest, and returns it if that distance is within
+## [constant AIM_ASSIST_RADIUS]; otherwise null (pure directional flight,
+## e.g. genuine free-fire at empty ground). A monster behind the caster
+## (negative projection onto the ray) or beyond the skill's own range never
+## qualifies — this is deliberately the skill's own reach, not "anywhere
+## near the aim line forever". Ties broken by perpendicular distance alone;
+## the exact tie-break doesn't matter at this game's live monster count
+## (~5-10, ADR 0015).
+func _find_aim_assist_target(direction: Vector3, max_distance: float) -> Monster:
+	var best: Monster = null
+	var best_distance: float = AIM_ASSIST_RADIUS
+	for node: Node in get_tree().get_nodes_in_group("monsters"):
+		var monster: Monster = node as Monster
+		if monster == null or monster.is_dead():
+			continue
+		var to_monster: Vector3 = monster.global_position - global_position
+		to_monster.y = 0.0
+		var along: float = to_monster.dot(direction)
+		if along < 0.0 or along > max_distance:
+			continue
+		var perpendicular: Vector3 = to_monster - direction * along
+		var distance: float = perpendicular.length()
+		if distance <= best_distance:
+			best = monster
+			best_distance = distance
+	return best
 
 
 ## Resolves a melee Q/W/E-cast instantly (G6, docs/0019; G9, docs/0022) for
