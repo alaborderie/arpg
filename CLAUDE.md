@@ -451,3 +451,45 @@ make validate-data   # validates shared/*.json against shared/schemas/*
   existing weighted rarity draw reads that column instead of `weight` for an
   elite kill, so an elite kill's RNG draw sequence is identical in shape to a
   normal one (no save/replay-breaking reorder). Design in `docs/0020`.
+- **G8 — Support spells: level-up picks that modify your skills — DONE.**
+  On most level-ups the player picks 1 of 3 **support spells** — global
+  passives from `shared/supports.json` (12 entries, validated by
+  `shared/schemas/supports.schema.json`) that apply to whichever skill is
+  equipped. Two mechanical families, both routed through
+  `SupportCatalog.contribution_for_owned` (`game/domain/support_catalog.gd`,
+  mirrors `SkillCatalog`) into the same `contributions` array equipment/level
+  already feed: **stat** supports (`increased_damage`,
+  `increased_attack_cast_speed`, four `added_flat_<element>_damage`,
+  `increased_crit_chance`, `increased_crit_multiplier`, `increased_range`,
+  `faster_projectiles`, `life_on_kill`) extend `PlayerStats.compose` with six
+  new contribution keys (turns out `attack_range`/`projectile_speed` *are*
+  reachable through composition after all — see docs/0021); **pipeline**
+  (`added_projectiles`) is read directly off the composed config by
+  `Player._fire_projectile`/`_fire_projectile_directional`, fanning out N
+  projectiles in both homing and directional cast modes (melee is a
+  documented no-op). `added_flat_<element>_damage` only applies when the
+  equipped skill's own element matches — the pipeline resolves one damage
+  type per hit, a documented simplification. Chain/multistrike are
+  deliberately skipped (not cheap enough given the current projectile
+  design) — docs/0021 explains why. Offers draw from a fifth RNG stream
+  (`master_seed + 4`), and — unlike G2's one-shot skill-offer stream — this
+  one's state **is** persisted (`supports_offer_rng_state`) since it's drawn
+  from throughout the whole run, not exhausted before a save is possible.
+  Duplicates are allowed and stack additively (a deliberate "your call"
+  choice, documented). Level-up flow: `Player.gain_xp` emits `level_up(level)`
+  once per level crossed; `main.gd._level_up_reward(level)` is the **entire**
+  reserved-levels seam G9 claims — it returns early for level 10/20 (and for
+  the `skip_support_offers` test knob) today, and is the one function G9
+  edits to dispatch its own skill-unlock UI there instead, with nothing else
+  in the level-up path needing to change. A big XP grant crossing several
+  levels queues one offer at a time (`_pending_support_offers`) rather than
+  stacking pick screens. `SupportChoiceUI` (`game/scenes/ui/`) is
+  `SkillChoiceUI` copied almost verbatim (same pause idiom, card shape).
+  Test knob: `main.gd`'s `skip_support_offers` (same idiom as
+  `starting_skill_id`/`forced_elite`) — every existing scene test that can
+  cross a level threshold for a reason unrelated to G8 pins it true;
+  `Player.add_support(id)` is the direct seam for a scene test to grant a
+  specific support deterministically without driving the RNG offer/UI. Save:
+  `schema_version` 4, `player.supports` (`Array[String]`, duplicates
+  preserved), `_migrate_v3_to_v4` defaults a pre-G8 save to no supports
+  owned. Design in `docs/0021`.
