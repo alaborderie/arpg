@@ -13,12 +13,15 @@ extends RefCounted
 ##     "combat_rng_state": String,  # RngService.get_state(), the combat stream
 ##     "loot_rng_state": String,    # RngService.get_state(), the loot stream
 ##     "supports_offer_rng_state": String, # G8: the support-offer stream (docs/0021)
+##     "slot_skill_offer_rng_state": String, # G9: the slot-skill-offer stream (docs/0022)
 ##     "player": {
 ##       "health": int,
 ##       "position": {"x": float, "y": float, "z": float},
 ##       "bag": Array[Dictionary],       # Inventory.bag(), pickup order
 ##       "equipped": Dictionary,         # slot name -> item Dictionary
-##       "skill_id": String,             # G2: the chosen skill (shared/skills.json id)
+##       "skill_id": String,             # G2: slot 0 / Q's skill (shared/skills.json id)
+##       "secondary_skill_id": String,   # G9: slot 1 / W's skill, "" if not yet picked
+##       "tertiary_skill_id": String,    # G9: slot 2 / E's skill, "" if not yet picked
 ##       "level": int,                   # G3: current level (docs/0017)
 ##       "xp": int,                      # G3: total accumulated XP
 ##       "supports": Array[String],      # G8: owned support ids, duplicates allowed (docs/0021)
@@ -52,7 +55,14 @@ extends RefCounted
 ## state" (the same `.get(key, _rng.get_state())` idiom `combat_rng_state`/
 ## `loot_rng_state` restoration already uses), which is exactly correct here —
 ## a pre-G8 save never drew from this stream, so there is no real state to
-## restore (docs/0021).
+## restore (docs/0021). `_migrate_v4_to_v5` is G9's step: a pre-G9 save has no
+## `player.secondary_skill_id`/`player.tertiary_skill_id` (only one skill slot
+## existed), so both default to `""` — "not yet picked" — and, per docs/0022's
+## retroactive-unlock policy, main.gd queues a catch-up skill offer right after
+## load for any slot already unlocked by the save's level whose id is still
+## empty. `slot_skill_offer_rng_state` is left unset by this step for the exact
+## same reason `supports_offer_rng_state` was left unset by `_migrate_v3_to_v4`
+## — a pre-G9 save never drew from that stream either.
 ##
 ## RNG state as a String, not a number: [RandomNumberGenerator]'s `state` is a
 ## full 64-bit value, and Godot's JSON only has a double-precision number type
@@ -61,10 +71,13 @@ extends RefCounted
 ## the one that was actually saved. Formatting it as a decimal string sidesteps
 ## JSON's number type entirely; `int(String)` parses it back exactly.
 
-const CURRENT_SCHEMA_VERSION: int = 4
+const CURRENT_SCHEMA_VERSION: int = 5
 ## The skill a pre-G2 save (or any save missing `skill_id`) migrates to. See
 ## docs/0016 for why this particular skill.
 const DEFAULT_SKILL_ID: String = "quick_strike"
+## Slot 1/2 skill ids a pre-G9 save (or any save missing them) migrate to:
+## "not yet picked" — see docs/0022.
+const DEFAULT_SLOT_SKILL_ID: String = ""
 ## Level/XP a pre-G3 save (or any save missing `level`/`xp`) migrates to: a
 ## returning player simply starts the new curve from the bottom (docs/0017).
 const DEFAULT_LEVEL: int = 1
@@ -81,11 +94,14 @@ static func build(
 	combat_rng_state: int,
 	loot_rng_state: int,
 	supports_offer_rng_state: int,
+	slot_skill_offer_rng_state: int,
 	player_health: int,
 	player_position: Vector3,
 	bag: Array[Dictionary],
 	equipped: Dictionary,
 	skill_id: String,
+	secondary_skill_id: String,
+	tertiary_skill_id: String,
 	level: int,
 	xp: int,
 	supports: Array[String],
@@ -99,12 +115,15 @@ static func build(
 		"combat_rng_state": "%d" % combat_rng_state,
 		"loot_rng_state": "%d" % loot_rng_state,
 		"supports_offer_rng_state": "%d" % supports_offer_rng_state,
+		"slot_skill_offer_rng_state": "%d" % slot_skill_offer_rng_state,
 		"player": {
 			"health": player_health,
 			"position": _vector3_to_dict(player_position),
 			"bag": bag.duplicate(true),
 			"equipped": equipped.duplicate(true),
 			"skill_id": skill_id,
+			"secondary_skill_id": secondary_skill_id,
+			"tertiary_skill_id": tertiary_skill_id,
 			"level": level,
 			"xp": xp,
 			"supports": supports.duplicate(),
@@ -148,6 +167,9 @@ static func migrate(raw: Dictionary) -> Dictionary:
 			3:
 				data = _migrate_v3_to_v4(data)
 				version = 4
+			4:
+				data = _migrate_v4_to_v5(data)
+				version = 5
 			_:
 				push_error("SaveData: no migration path from schema_version %d" % version)
 				return {}
@@ -186,6 +208,22 @@ static func skill_id_from_player(data: Dictionary) -> String:
 	var player: Dictionary = data.get("player", {})
 	var skill_id: String = String(player.get("skill_id", ""))
 	return skill_id if not skill_id.is_empty() else DEFAULT_SKILL_ID
+
+
+## The player's saved slot-1 (W) skill id (G9, docs/0022), or "" if that slot
+## hasn't been picked yet — unlike [method skill_id_from_player], an empty
+## string here is a valid, meaningful state (not a fallback trigger).
+## [param data] is a migrated envelope.
+static func secondary_skill_id_from_player(data: Dictionary) -> String:
+	var player: Dictionary = data.get("player", {})
+	return String(player.get("secondary_skill_id", DEFAULT_SLOT_SKILL_ID))
+
+
+## The player's saved slot-2 (E) skill id (G9, docs/0022); see
+## [method secondary_skill_id_from_player] for the same "empty is valid" note.
+static func tertiary_skill_id_from_player(data: Dictionary) -> String:
+	var player: Dictionary = data.get("player", {})
+	return String(player.get("tertiary_skill_id", DEFAULT_SLOT_SKILL_ID))
 
 
 ## The player's saved level (G3). [param data] is a migrated envelope — always
@@ -291,5 +329,23 @@ static func _migrate_v3_to_v4(data: Dictionary) -> Dictionary:
 	var player: Dictionary = (migrated.get("player", {}) as Dictionary).duplicate(true)
 	if not player.has("supports"):
 		player["supports"] = DEFAULT_SUPPORTS.duplicate()
+	migrated["player"] = player
+	return migrated
+
+
+## G9 (docs/0022): a pre-G9 save has only ever had one skill slot — no
+## `player.secondary_skill_id`/`player.tertiary_skill_id` at all. Both default
+## to "" ("not yet picked"); the existing `skill_id` becomes slot 0 as-is
+## (already true before this step — nothing to migrate there). main.gd's
+## retroactive-unlock policy (docs/0022) is what actually gets a returning
+## higher-level save its missed W/E pick — this step only shapes the envelope.
+static func _migrate_v4_to_v5(data: Dictionary) -> Dictionary:
+	var migrated: Dictionary = data.duplicate(true)
+	migrated["schema_version"] = 5
+	var player: Dictionary = (migrated.get("player", {}) as Dictionary).duplicate(true)
+	if not player.has("secondary_skill_id"):
+		player["secondary_skill_id"] = DEFAULT_SLOT_SKILL_ID
+	if not player.has("tertiary_skill_id"):
+		player["tertiary_skill_id"] = DEFAULT_SLOT_SKILL_ID
 	migrated["player"] = player
 	return migrated
