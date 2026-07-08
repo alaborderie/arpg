@@ -43,6 +43,10 @@ func _movement_main() -> Node3D:
 	var packed: PackedScene = load("res://scenes/main/main.tscn")
 	var instance: Node3D = packed.instantiate() as Node3D
 	instance.set("rng_seed", 7)
+	# G2 (docs/0016): pin the skill so this fresh-game instance skips the
+	# choice screen, which would otherwise pause the tree before movement ever
+	# ran.
+	instance.set("starting_skill_id", "quick_strike")
 	instance.get_node("MonsterSpawner").set("target_population", 0)
 	return instance
 

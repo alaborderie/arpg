@@ -15,7 +15,10 @@ func _sample_equipped() -> Dictionary:
 
 
 func _sample_envelope() -> Dictionary:
-	return SaveData.build(42, 7, 9, 55, Vector3(1.0, 0.0, -2.5), _sample_bag(), _sample_equipped(), 3, 1700000000)
+	return SaveData.build(
+		42, 7, 9, 55, Vector3(1.0, 0.0, -2.5), _sample_bag(), _sample_equipped(),
+		"heavy_slash", 3, 1700000000
+	)
 
 
 func test_build_shapes_the_current_schema_version_envelope() -> void:
@@ -49,6 +52,8 @@ func test_round_trip_through_migrate_preserves_every_field() -> void:
 	var equipped: Dictionary = SaveData.equipped_from_player(migrated)
 	assert_str(String((equipped.get("armor", {}) as Dictionary).get("name", ""))).is_equal("Vest")
 
+	assert_str(SaveData.skill_id_from_player(migrated)).is_equal("heavy_slash")
+
 	var progress: Dictionary = migrated.get("progress", {})
 	assert_int(int(progress.get("monsters_killed", -1))).is_equal(3)
 
@@ -72,9 +77,33 @@ func test_migrate_v0_fills_in_defaults_for_fields_it_lacked() -> void:
 	assert_int(int(migrated.get("progress", {}).get("monsters_killed", -1))).is_equal(0)
 	assert_bool(SaveData.bag_from_player(migrated).is_empty()).is_true()
 	assert_bool(SaveData.equipped_from_player(migrated).is_empty()).is_true()
+	# G2's step (v1 -> v2) runs right after v0 -> v1 in the same migrate() call:
+	# a save this old predates skills entirely, so it lands on the documented
+	# default (docs/0016).
+	assert_str(SaveData.skill_id_from_player(migrated)).is_equal(SaveData.DEFAULT_SKILL_ID)
 	# Fields the legacy save did have survive untouched.
 	assert_int(int(migrated.get("master_seed", 0))).is_equal(5)
 	assert_int(int(migrated.get("player", {}).get("health", 0))).is_equal(80)
+
+
+## G2's own migration step: a v1 save (skills didn't exist) has no
+## `player.skill_id` at all, unlike the v0 scaffold above which is missing
+## everything. Exercised separately so this step is tested in isolation, the
+## way a real "one version behind" save will actually show up in the wild.
+func test_migrate_v1_defaults_missing_skill_id() -> void:
+	var v1_save: Dictionary = {
+		"schema_version": 1,
+		"saved_at_unix": 1650000000,
+		"master_seed": 9,
+		"combat_rng_state": "3",
+		"loot_rng_state": "4",
+		"player": {"health": 100, "position": {"x": 0.0, "y": 0.0, "z": 0.0}, "bag": [], "equipped": {}},
+		"progress": {"monsters_killed": 2},
+	}
+	var migrated: Dictionary = SaveData.migrate(v1_save)
+	assert_bool(migrated.is_empty()).is_false()
+	assert_int(int(migrated.get("schema_version", -1))).is_equal(SaveData.CURRENT_SCHEMA_VERSION)
+	assert_str(SaveData.skill_id_from_player(migrated)).is_equal(SaveData.DEFAULT_SKILL_ID)
 
 
 func test_migrate_rejects_a_newer_schema_version() -> void:
@@ -109,7 +138,7 @@ func test_large_rng_state_survives_a_json_round_trip() -> void:
 	var huge_combat_state: int = 7952383842509584290
 	var huge_loot_state: int = -6871234509876543210
 	var envelope: Dictionary = SaveData.build(
-		1, huge_combat_state, huge_loot_state, 100, Vector3.ZERO, [], {}, 0, 0
+		1, huge_combat_state, huge_loot_state, 100, Vector3.ZERO, [], {}, "quick_strike", 0, 0
 	)
 	var through_json: Variant = JSON.parse_string(JSON.stringify(envelope))
 	assert_bool(through_json is Dictionary).is_true()

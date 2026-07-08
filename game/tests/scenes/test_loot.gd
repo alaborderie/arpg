@@ -49,6 +49,11 @@ func _seeded_main(seed_value: int) -> Node3D:
 	var packed: PackedScene = load("res://scenes/main/main.tscn")
 	var instance: Node3D = packed.instantiate() as Node3D
 	instance.set("rng_seed", seed_value)
+	# G2 (docs/0016): pin the skill so this fresh-game instance skips the
+	# choice screen — quick_strike matches the pre-G2 unarmed baseline exactly
+	# (shared/player.json's 4-7 physical), so the "before" attack profile this
+	# suite asserts on is unchanged.
+	instance.set("starting_skill_id", "quick_strike")
 	var spawner: Node = instance.get_node("MonsterSpawner")
 	spawner.set("target_population", 1)
 	spawner.set("forced_monster_id", "fallen_imp")

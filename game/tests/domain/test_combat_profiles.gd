@@ -48,6 +48,10 @@ func test_damage_type_from_name_maps_every_type() -> void:
 		.is_equal(AttackProfile.DamageType.COLD)
 	assert_int(CombatProfiles.damage_type_from_name("lightning")) \
 		.is_equal(AttackProfile.DamageType.LIGHTNING)
+	# G2 (docs/0016): poison feeds monsters.json's new `poison` resistance key,
+	# the same way fire/cold/lightning each feed their own.
+	assert_int(CombatProfiles.damage_type_from_name("poison")) \
+		.is_equal(AttackProfile.DamageType.POISON)
 
 
 func test_damage_type_from_unknown_name_falls_back_to_physical() -> void:
@@ -81,6 +85,14 @@ func test_defense_against_physical_ignores_resistances() -> void:
 		FALLEN_IMP, AttackProfile.DamageType.PHYSICAL, COMBAT_CONSTANTS
 	)
 	assert_float(defense.resistance_pct).is_equal_approx(0.0, 0.0001)
+
+
+func test_defense_picks_poison_resistance_when_present() -> void:
+	var poison_resistant: Dictionary = {"armor": 0, "resistances": {"poison": 50}}
+	var defense: DefenseProfile = CombatProfiles.defense_from_data(
+		poison_resistant, AttackProfile.DamageType.POISON, COMBAT_CONSTANTS
+	)
+	assert_float(defense.resistance_pct).is_equal_approx(50.0, 0.0001)
 
 
 func test_defense_without_resistances_defaults_to_zero() -> void:

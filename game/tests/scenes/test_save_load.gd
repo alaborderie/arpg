@@ -52,10 +52,14 @@ func after_test() -> void:
 ## pinning the G1 spawner to one forced fallen_imp so the kill order this test's
 ## seeds were swept for is preserved (see test_loot.gd's comment on why the
 ## forced id can't disturb the loot stream).
-func _seeded_main(seed_value: int) -> Node3D:
+func _seeded_main(seed_value: int, skill_id: String = "quick_strike") -> Node3D:
 	var packed: PackedScene = load("res://scenes/main/main.tscn")
 	var instance: Node3D = packed.instantiate() as Node3D
 	instance.set("rng_seed", seed_value)
+	# G2 (docs/0016): this is a fresh game (no save exists yet), so pin the
+	# skill to skip the choice screen — the reloaded session below picks the
+	# persisted skill_id back up instead, proving that round trip separately.
+	instance.set("starting_skill_id", skill_id)
 	_pin_spawner(instance)
 	return instance
 
@@ -167,6 +171,43 @@ func test_save_then_reload_restores_health_inventory_equipment_and_progress() ->
 	assert_object(second_drop).is_not_null()
 	assert_str(String(second_drop.item().get("name", ""))).is_equal(SECOND_DROP_NAME)
 	assert_str(String(second_drop.item().get("slot", ""))).is_equal(SECOND_DROP_SLOT)
+
+	await _free_main(runner2, main2)
+	SaveStore.delete()
+
+
+## G2 (docs/0016): the chosen skill must persist across a save/reload, the
+## same way equipment already does above. Uses a distinct, non-default skill
+## (fireball, not quick_strike) so this actually proves persistence rather than
+## just landing on DEFAULT_SKILL_ID by coincidence.
+const SKILL_SAVE_SEED: int = 57
+const SAVED_SKILL_ID: String = "fireball"
+
+
+func test_save_then_reload_restores_the_chosen_skill() -> void:
+	SaveStore.delete()
+
+	var runner1: GdUnitSceneRunner = scene_runner(_seeded_main(SKILL_SAVE_SEED, SAVED_SKILL_ID))
+	var main1: Node3D = runner1.scene()
+	var player1: Player = main1.get_node("Player")
+	await runner1.simulate_frames(2)
+
+	assert_str(player1.skill_id()).is_equal(SAVED_SKILL_ID)
+	main1.call("_save_game")
+	var saved: Dictionary = SaveStore.load()
+	assert_bool(saved.is_empty()).is_false()
+	assert_str(String(saved.get("player", {}).get("skill_id", ""))).is_equal(SAVED_SKILL_ID)
+	await _free_main(runner1, main1)
+
+	# A brand-new instance boots unpinned (rng_seed 0): the real load-at-boot
+	# path applies the save, including its skill_id, with no choice screen.
+	var runner2: GdUnitSceneRunner = scene_runner(_fresh_main())
+	var main2: Node3D = runner2.scene()
+	var player2: Player = main2.get_node("Player")
+	await runner2.simulate_frames(2)
+
+	assert_str(player2.skill_id()).is_equal(SAVED_SKILL_ID)
+	assert_bool(main2.get_tree().paused).is_false()
 
 	await _free_main(runner2, main2)
 	SaveStore.delete()

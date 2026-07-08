@@ -41,6 +41,10 @@ func _combat_main() -> Node3D:
 	var packed: PackedScene = load("res://scenes/main/main.tscn")
 	var instance: Node3D = packed.instantiate() as Node3D
 	instance.set("rng_seed", COMBAT_SEED)
+	# G2 (docs/0016): pin the skill so this fresh-game instance skips the
+	# choice screen (which would otherwise pause the tree) — quick_strike
+	# matches the pre-G2 basic attack exactly, so this suite's timings hold.
+	instance.set("starting_skill_id", "quick_strike")
 	var spawner: Node = instance.get_node("MonsterSpawner")
 	spawner.set("target_population", 1)
 	spawner.set("forced_monster_id", "fallen_imp")

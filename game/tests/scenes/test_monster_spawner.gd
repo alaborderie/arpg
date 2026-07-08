@@ -35,6 +35,9 @@ func _spawner_main(population: int, forced_id: String = "") -> Node3D:
 	var packed: PackedScene = load("res://scenes/main/main.tscn")
 	var instance: Node3D = packed.instantiate() as Node3D
 	instance.set("rng_seed", SPAWNER_SEED)
+	# G2 (docs/0016): pin the skill so this fresh-game instance skips the
+	# choice screen, which would otherwise pause the tree before spawning ran.
+	instance.set("starting_skill_id", "quick_strike")
 	var spawner: Node = instance.get_node("MonsterSpawner")
 	spawner.set("target_population", population)
 	if forced_id != "":
