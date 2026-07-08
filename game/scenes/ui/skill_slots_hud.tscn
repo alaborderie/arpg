@@ -1,0 +1,60 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scenes/ui/skill_slots_hud.gd" id="1_skill_slots_hud"]
+
+[node name="SkillSlotsHUD" type="CanvasLayer"]
+script = ExtResource("1_skill_slots_hud")
+
+[node name="Panel" type="PanelContainer" parent="."]
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -220.0
+offset_top = -136.0
+offset_right = 220.0
+offset_bottom = -80.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="Margin" type="MarginContainer" parent="Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 4
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 4
+
+[node name="Layout" type="HBoxContainer" parent="Panel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+alignment = 1
+
+[node name="SlotQ" type="PanelContainer" parent="Panel/Margin/Layout"]
+layout_mode = 2
+custom_minimum_size = Vector2(128, 48)
+
+[node name="Label" type="Label" parent="Panel/Margin/Layout/SlotQ"]
+layout_mode = 2
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "Q"
+
+[node name="SlotW" type="PanelContainer" parent="Panel/Margin/Layout"]
+layout_mode = 2
+custom_minimum_size = Vector2(128, 48)
+
+[node name="Label" type="Label" parent="Panel/Margin/Layout/SlotW"]
+layout_mode = 2
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "Lv 10"
+
+[node name="SlotE" type="PanelContainer" parent="Panel/Margin/Layout"]
+layout_mode = 2
+custom_minimum_size = Vector2(128, 48)
+
+[node name="Label" type="Label" parent="Panel/Margin/Layout/SlotE"]
+layout_mode = 2
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "Lv 20"
