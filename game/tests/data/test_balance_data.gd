@@ -101,3 +101,14 @@ func test_affix_ranges_are_ordered() -> void:
 	for entry: Variant in affixes:
 		var affix: Dictionary = entry as Dictionary
 		assert_int(int(affix.get("max", -1))).is_greater_equal(int(affix.get("min", 0)))
+
+
+## G3 (docs/0017): the XP/level curve data.
+func test_progression_config_loads() -> void:
+	var doc: Dictionary = BalanceData.load_progression()
+	assert_bool(doc.is_empty()).is_false()
+	var progression: Dictionary = doc.get("progression", {})
+	assert_int(int(progression.get("max_level", 0))).is_greater(1)
+	assert_float(float(progression.get("xp_base", 0.0))).is_greater(0.0)
+	assert_float(float(progression.get("xp_growth", 0.0))).is_greater(1.0)
+	assert_float(float(progression.get("level_bonus_pct", 0.0))).is_greater(0.0)

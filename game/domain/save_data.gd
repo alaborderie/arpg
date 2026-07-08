@@ -18,6 +18,8 @@ extends RefCounted
 ##       "bag": Array[Dictionary],       # Inventory.bag(), pickup order
 ##       "equipped": Dictionary,         # slot name -> item Dictionary
 ##       "skill_id": String,             # G2: the chosen skill (shared/skills.json id)
+##       "level": int,                   # G3: current level (docs/0017)
+##       "xp": int,                      # G3: total accumulated XP
 ##     },
 ##     "progress": {
 ##       "monsters_killed": int,
@@ -36,6 +38,10 @@ extends RefCounted
 ## non-scaffold step: a pre-G2 save has no `player.skill_id` (skills didn't
 ## exist), so it defaults to `"quick_strike"` — a plain, no-frills melee skill
 ## that best matches what "the basic attack" used to mean (docs/0016).
+## `_migrate_v2_to_v3` is G3's step: a pre-G3 save has no `player.level`/
+## `player.xp` (levels didn't exist), so it defaults to level 1, XP 0 — a
+## returning save keeps its `progress.monsters_killed` untouched and simply
+## starts the XP/level curve from scratch (docs/0017).
 ##
 ## RNG state as a String, not a number: [RandomNumberGenerator]'s `state` is a
 ## full 64-bit value, and Godot's JSON only has a double-precision number type
@@ -44,10 +50,14 @@ extends RefCounted
 ## the one that was actually saved. Formatting it as a decimal string sidesteps
 ## JSON's number type entirely; `int(String)` parses it back exactly.
 
-const CURRENT_SCHEMA_VERSION: int = 2
+const CURRENT_SCHEMA_VERSION: int = 3
 ## The skill a pre-G2 save (or any save missing `skill_id`) migrates to. See
 ## docs/0016 for why this particular skill.
 const DEFAULT_SKILL_ID: String = "quick_strike"
+## Level/XP a pre-G3 save (or any save missing `level`/`xp`) migrates to: a
+## returning player simply starts the new curve from the bottom (docs/0017).
+const DEFAULT_LEVEL: int = 1
+const DEFAULT_XP: int = 0
 
 
 ## Builds a fresh envelope at CURRENT_SCHEMA_VERSION from raw scene state. Callers
@@ -61,6 +71,8 @@ static func build(
 	bag: Array[Dictionary],
 	equipped: Dictionary,
 	skill_id: String,
+	level: int,
+	xp: int,
 	monsters_killed: int,
 	saved_at_unix: int
 ) -> Dictionary:
@@ -76,6 +88,8 @@ static func build(
 			"bag": bag.duplicate(true),
 			"equipped": equipped.duplicate(true),
 			"skill_id": skill_id,
+			"level": level,
+			"xp": xp,
 		},
 		"progress": {
 			"monsters_killed": monsters_killed,
@@ -110,6 +124,9 @@ static func migrate(raw: Dictionary) -> Dictionary:
 			1:
 				data = _migrate_v1_to_v2(data)
 				version = 2
+			2:
+				data = _migrate_v2_to_v3(data)
+				version = 3
 			_:
 				push_error("SaveData: no migration path from schema_version %d" % version)
 				return {}
@@ -148,6 +165,22 @@ static func skill_id_from_player(data: Dictionary) -> String:
 	var player: Dictionary = data.get("player", {})
 	var skill_id: String = String(player.get("skill_id", ""))
 	return skill_id if not skill_id.is_empty() else DEFAULT_SKILL_ID
+
+
+## The player's saved level (G3). [param data] is a migrated envelope — always
+## present at CURRENT_SCHEMA_VERSION thanks to `_migrate_v2_to_v3`, but this
+## still falls back to DEFAULT_LEVEL so a caller handed a raw/unmigrated
+## Dictionary never reads a level below 1.
+static func level_from_player(data: Dictionary) -> int:
+	var player: Dictionary = data.get("player", {})
+	return maxi(DEFAULT_LEVEL, int(player.get("level", DEFAULT_LEVEL)))
+
+
+## The player's saved total XP (G3). [param data] is a migrated envelope; see
+## [method level_from_player] for the same raw-Dictionary safety note.
+static func xp_from_player(data: Dictionary) -> int:
+	var player: Dictionary = data.get("player", {})
+	return maxi(DEFAULT_XP, int(player.get("xp", DEFAULT_XP)))
 
 
 static func _vector3_to_dict(position: Vector3) -> Dictionary:
@@ -194,5 +227,21 @@ static func _migrate_v1_to_v2(data: Dictionary) -> Dictionary:
 	var player: Dictionary = (migrated.get("player", {}) as Dictionary).duplicate(true)
 	if not player.has("skill_id") or String(player.get("skill_id", "")).is_empty():
 		player["skill_id"] = DEFAULT_SKILL_ID
+	migrated["player"] = player
+	return migrated
+
+
+## G3 (docs/0017): a pre-G3 save has no `player.level`/`player.xp` — levels
+## didn't exist yet. Defaulting to level 1 / 0 XP means a returning player
+## starts the curve from the bottom; `progress.monsters_killed` is untouched by
+## this step (it already survived any earlier migration).
+static func _migrate_v2_to_v3(data: Dictionary) -> Dictionary:
+	var migrated: Dictionary = data.duplicate(true)
+	migrated["schema_version"] = 3
+	var player: Dictionary = (migrated.get("player", {}) as Dictionary).duplicate(true)
+	if not player.has("level"):
+		player["level"] = DEFAULT_LEVEL
+	if not player.has("xp"):
+		player["xp"] = DEFAULT_XP
 	migrated["player"] = player
 	return migrated
