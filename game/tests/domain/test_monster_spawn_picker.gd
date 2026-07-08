@@ -45,6 +45,42 @@ func test_ring_offset_is_deterministic_for_a_given_seed() -> void:
 		assert_float(offset_a.distance_to(offset_b)).is_equal_approx(0.0, 0.0001)
 
 
+## G7 (issue #14, docs/0020): elite decision determinism, mirroring
+## pick_monster_id/ring_offset's own determinism tests.
+func test_roll_is_elite_is_deterministic_for_a_given_seed() -> void:
+	var rng_a := RngService.new(21)
+	var rng_b := RngService.new(21)
+	for _i: int in 50:
+		assert_bool(MonsterSpawnPicker.roll_is_elite(rng_a, 0.1)) \
+			.is_equal(MonsterSpawnPicker.roll_is_elite(rng_b, 0.1))
+
+
+func test_roll_is_elite_chance_zero_never_elite() -> void:
+	var rng := RngService.new(3)
+	for _i: int in 100:
+		assert_bool(MonsterSpawnPicker.roll_is_elite(rng, 0.0)).is_false()
+
+
+func test_roll_is_elite_chance_one_always_elite() -> void:
+	var rng := RngService.new(4)
+	for _i: int in 100:
+		assert_bool(MonsterSpawnPicker.roll_is_elite(rng, 1.0)).is_true()
+
+
+## Statistical sweep at the ticket's 1-in-10 default: over many draws the
+## observed rate should land close to 0.1, not just "sometimes true".
+func test_roll_is_elite_respects_the_configured_chance_statistically() -> void:
+	var rng := RngService.new(123)
+	const SAMPLES: int = 5000
+	var elites: int = 0
+	for _i: int in SAMPLES:
+		if MonsterSpawnPicker.roll_is_elite(rng, 0.1):
+			elites += 1
+	var rate: float = float(elites) / float(SAMPLES)
+	assert_float(rate).is_greater(0.07)
+	assert_float(rate).is_less(0.13)
+
+
 func test_ring_offset_does_not_cluster_at_the_centre() -> void:
 	# A uniform-in-area draw would put most points near the inner radius; this
 	# ring draw should average close to the middle of [min, max] instead.

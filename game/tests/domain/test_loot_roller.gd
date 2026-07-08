@@ -146,3 +146,64 @@ func test_base_lookup_resolves_rolled_items() -> void:
 	var base: Dictionary = roller.base(String(item.get("base_id", "")))
 	assert_bool(base.is_empty()).is_false()
 	assert_str(String(base.get("slot", ""))).is_equal(String(item.get("slot", "")))
+
+
+## G7 (issue #14, docs/0020): rarities carrying an `elite_weight` column bias an
+## elite kill's rarity pick without spending any extra RNG draws — same seed,
+## same number of draws, just a different weight table feeding the one
+## randi_range the normal roll already made.
+const ELITE_TABLES: Dictionary = {
+	"rarities": [
+		{"id": "normal", "weight": 60, "elite_weight": 15, "affix_count_min": 0, "affix_count_max": 0},
+		{"id": "magic", "weight": 30, "elite_weight": 45, "affix_count_min": 1, "affix_count_max": 2},
+		{"id": "rare", "weight": 10, "elite_weight": 40, "affix_count_min": 3, "affix_count_max": 4},
+	],
+	"tables": [
+		{"monster_id": "generous", "drop_chance": 1.0, "base_pool": ["sword", "vest"]},
+	],
+}
+
+
+func test_elite_rolls_shift_the_rarity_distribution_toward_higher_tiers() -> void:
+	# Two independent rollers, same seed, same kill count — one always rolling
+	# normal kills, the other always elite — so any difference in the resulting
+	# rarity distribution is attributable purely to the is_elite bias, not to
+	# the RNG stream position (both rollers draw exactly the same shape of
+	# sequence per kill: the bias only changes which weight column feeds the
+	# rarity draw, per the class doc).
+	const SAMPLES: int = 500
+	var normal_roller: LootRoller = _roller(55, ELITE_TABLES)
+	var elite_roller: LootRoller = _roller(55, ELITE_TABLES)
+	var normal_counts: Dictionary = {"normal": 0, "magic": 0, "rare": 0}
+	var elite_counts: Dictionary = {"normal": 0, "magic": 0, "rare": 0}
+	for _i: int in SAMPLES:
+		var normal_item: Dictionary = normal_roller.roll_drop("generous", false)
+		var elite_item: Dictionary = elite_roller.roll_drop("generous", true)
+		var normal_rarity: String = String(normal_item.get("rarity", ""))
+		var elite_rarity: String = String(elite_item.get("rarity", ""))
+		normal_counts[normal_rarity] = int(normal_counts.get(normal_rarity, 0)) + 1
+		elite_counts[elite_rarity] = int(elite_counts.get(elite_rarity, 0)) + 1
+
+	# The bias must measurably shift mass off "normal" and onto "magic"/"rare".
+	assert_int(int(elite_counts["normal"])).is_less(int(normal_counts["normal"]))
+	var normal_high_tier: int = int(normal_counts["magic"]) + int(normal_counts["rare"])
+	var elite_high_tier: int = int(elite_counts["magic"]) + int(elite_counts["rare"])
+	assert_int(elite_high_tier).is_greater(normal_high_tier)
+	# Sanity bound against the fixture's exact weights: normal kills should land
+	# close to the 60% normal / 40% magic+rare split, elite kills close to the
+	# 15% normal / 85% magic+rare split (elite_weight column) — generous bands
+	# so this isn't flaky, just confirms the shift is in the right ballpark.
+	assert_float(float(normal_counts["normal"]) / SAMPLES).is_between(0.45, 0.75)
+	assert_float(float(elite_counts["normal"]) / SAMPLES).is_between(0.05, 0.3)
+
+
+func test_elite_flag_defaults_to_false_and_does_not_change_existing_seeds() -> void:
+	# Backward compatibility: a caller that never passes is_elite (every call
+	# site before G7) must roll byte-for-byte what it always rolled.
+	var with_default: LootRoller = _roller(1234)
+	var explicit_false: LootRoller = _roller(1234)
+	var kills: Array[String] = ["imp", "generous", "imp", "generous", "imp"]
+	for monster_id: String in kills:
+		var a: Dictionary = with_default.roll_drop(monster_id)
+		var b: Dictionary = explicit_false.roll_drop(monster_id, false)
+		assert_bool(a == b).is_true()

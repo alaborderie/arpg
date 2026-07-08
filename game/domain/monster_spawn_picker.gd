@@ -10,11 +10,15 @@ extends RefCounted
 ## and turns the id [method pick_monster_id] returns into an actual instanced
 ## [Monster] — this class only ever hands back plain data.
 ##
-## Draw order per spawn attempt — monster id, then angle, then radius — is part
-## of the same determinism contract [LootRoller] documents (ADR 0004): reordering
-## these draws would change what a given RNG stream position produces next, a
-## save/replay-breaking change if a future milestone starts persisting the spawn
-## stream (today it deliberately isn't — see docs/0015).
+## Draw order per spawn attempt — ring offset (angle, then radius), monster id,
+## then the elite roll (G7, docs/0020) — is part of the same determinism contract
+## [LootRoller] documents (ADR 0004): reordering these draws would change what a
+## given RNG stream position produces next, a save/replay-breaking change if a
+## future milestone starts persisting the spawn stream (today it deliberately
+## isn't — see docs/0015). A forced monster id or a forced elite/non-elite test
+## knob (`MonsterSpawner.forced_monster_id`/`forced_elite`) skips its draw
+## entirely rather than discarding it, so pinning either one never perturbs the
+## stream position the other spawns (or the ring offsets) depend on.
 
 
 ## Picks uniformly among [param monster_ids]. Empty input returns "".
@@ -32,3 +36,13 @@ static func ring_offset(min_radius: float, max_radius: float, rng: RngService) -
 	var angle: float = rng.randf_range(0.0, TAU)
 	var radius: float = rng.randf_range(min_radius, max_radius)
 	return Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
+
+
+## True with probability [param chance] (G7, docs/0020: elites spawn 1-in-10 by
+## default) — whether this spawn is an ELITE variant of whichever monster id was
+## picked. One [method RngService.randf] draw, same "ride the existing stream"
+## rule the id/position draws already follow; [param chance] is caller-supplied
+## (from `shared/combat.json`'s `elite` block) so this stays pure data-in,
+## data-out with no file access.
+static func roll_is_elite(rng: RngService, chance: float) -> bool:
+	return rng.randf() < chance

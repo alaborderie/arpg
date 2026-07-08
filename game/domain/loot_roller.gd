@@ -19,6 +19,14 @@ extends RefCounted
 ## A rolled item is a plain Dictionary (save-friendly for M4):
 ##   { "base_id": String, "name": String, "slot": String, "rarity": String,
 ##     "affixes": [ { "id": String, "stat": String, "value": int }, ... ] }
+##
+## G7 (docs/0020): [method roll_drop]'s optional `is_elite` flag biases step 3
+## toward higher rarities — it swaps which weight column of `rarities` the same
+## single weighted draw reads (`elite_weight` instead of `weight`), so an elite
+## kill spends exactly the same number/shape of RNG draws as a normal one. This
+## is deliberate: the rarity pick was always going to draw one `randi_range`
+## either way, so biasing *which weights it reads* costs nothing extra in the
+## stream and can never desync a save/replay the way adding a new draw would.
 
 var _rng: RngService
 ## monster_id -> its `tables[]` entry.
@@ -63,8 +71,11 @@ func base(base_id: String) -> Dictionary:
 
 ## Rolls the drop for one kill of [param monster_id]. Returns the rolled item, or
 ## an empty Dictionary when nothing drops (no table, chance missed, or a base id
-## missing from items.json — the data tests guard that integrity).
-func roll_drop(monster_id: String) -> Dictionary:
+## missing from items.json — the data tests guard that integrity). [param
+## is_elite] (G7, docs/0020) biases the rarity pick toward higher tiers — pass
+## [method Monster.is_elite] straight through, the same way `monster_id` is
+## already read off the dead monster.
+func roll_drop(monster_id: String, is_elite: bool = false) -> Dictionary:
 	var table: Dictionary = _tables_by_monster.get(monster_id, {}) as Dictionary
 	if table.is_empty():
 		return {}
@@ -82,7 +93,7 @@ func roll_drop(monster_id: String) -> Dictionary:
 	if item_base.is_empty():
 		return {}
 
-	var rarity: Dictionary = _pick_rarity()
+	var rarity: Dictionary = _pick_rarity(is_elite)
 	var affixes: Array[Dictionary] = _roll_affixes(
 		String(item_base.get("slot", "")),
 		int(rarity.get("affix_count_min", 0)),
@@ -98,18 +109,23 @@ func roll_drop(monster_id: String) -> Dictionary:
 	}
 
 
-## Weighted pick over the rarities, in file order. One randi_range draw.
-func _pick_rarity() -> Dictionary:
+## Weighted pick over the rarities, in file order. One randi_range draw,
+## whichever weight column feeds it (see the class doc for why an elite kill
+## reads `elite_weight` instead of `weight` rather than drawing again). Falls
+## back to `weight` for a rarity entry missing `elite_weight` so older/partial
+## fixtures (the non-elite domain test suite's) keep working unchanged.
+func _pick_rarity(is_elite: bool = false) -> Dictionary:
 	if _rarities.is_empty():
 		return {}
+	var weight_key: String = "elite_weight" if is_elite else "weight"
 	var total: int = 0
 	for rarity: Dictionary in _rarities:
-		total += int(rarity.get("weight", 0))
+		total += int(rarity.get(weight_key, rarity.get("weight", 0)))
 	if total <= 0:
 		return _rarities[0]
 	var pick: int = _rng.randi_range(1, total)
 	for rarity: Dictionary in _rarities:
-		pick -= int(rarity.get("weight", 0))
+		pick -= int(rarity.get(weight_key, rarity.get("weight", 0)))
 		if pick <= 0:
 			return rarity
 	return _rarities[_rarities.size() - 1]
