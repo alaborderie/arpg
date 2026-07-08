@@ -76,6 +76,10 @@ var _monsters_killed: int = 0
 @onready var _drops: Node3D = $Drops
 @onready var _inventory_panel: InventoryPanel = $InventoryPanel
 @onready var _save_button: Button = $SaveUI/SaveButton
+## Cloud-save sync adapter (M5, ADR 0013). `SyncConfig.enabled = false` in a
+## test's setup opts a scene instance out entirely, the same idiom pinning
+## `rng_seed` already uses to opt out of disk save-loading.
+@onready var _sync_service: SyncService = $SyncService
 
 
 func _ready() -> void:
@@ -102,10 +106,9 @@ func _ready() -> void:
 	_inventory_panel.setup(_player)
 	_spawn_monsters()
 	if not loaded.is_empty():
-		_player.load_state(loaded)
-		var progress: Dictionary = loaded.get("progress", {})
-		_monsters_killed = int(progress.get("monsters_killed", 0))
+		_apply_loaded_save(loaded)
 	_save_button.pressed.connect(_save_game)
+	_sync_service.remote_save_applied.connect(_on_remote_save_applied)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -188,6 +191,10 @@ func _on_monster_died(monster: Monster) -> void:
 ## both the `save_game` action (F5) and an on-screen button — the same
 ## "one action, two input paths" idiom toggle_inventory already uses for touch
 ## and desktop. See docs/0012 for the save-format and UX decisions.
+##
+## Uploads to the server right after (M5, ADR 0013): fire-and-forget, since
+## SyncService.upload_after_save is a coroutine main.gd never awaits - saving
+## locally never waits on the network.
 func _save_game() -> void:
 	var envelope: Dictionary = SaveData.build(
 		_master_seed,
@@ -201,6 +208,26 @@ func _save_game() -> void:
 		int(Time.get_unix_time_from_system())
 	)
 	SaveStore.save(envelope)
+	_sync_service.upload_after_save(envelope)
+
+
+## Applies a migrated save envelope to the live scene: player health/position/
+## inventory/equipment and the progress counter. Shared by the load-at-boot
+## path in _ready and by _on_remote_save_applied (M5), so a newer save that
+## arrives from the server after boot is applied the same way a local save
+## would have been.
+func _apply_loaded_save(loaded: Dictionary) -> void:
+	_player.load_state(loaded)
+	var progress: Dictionary = loaded.get("progress", {})
+	_monsters_killed = int(progress.get("monsters_killed", 0))
+
+
+## SyncService found a save on the server newer than what boot loaded (or than
+## what existed locally at all) and already wrote it to disk; apply it to the
+## running session too. Silent last-write-wins, no confirmation prompt - an
+## acceptable stub UX for a single-device game (docs/0013).
+func _on_remote_save_applied(envelope: Dictionary) -> void:
+	_apply_loaded_save(envelope)
 
 
 ## Angles the key light so the flat-shaded geometry reads with clear light/shade.
