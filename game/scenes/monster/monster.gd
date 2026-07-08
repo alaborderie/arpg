@@ -15,9 +15,18 @@ extends CharacterBody3D
 ## Emitted once, right before the corpse is freed. main.gd listens and rolls loot
 ## (M3): position and `monster_id()` are still valid during the emission.
 signal died(monster: Monster)
+## Emitted whenever current health changes (a hit) — G4, issue #11. The
+## floating health bar is updated directly from the same call site; this
+## signal exists for the same reason [Player]'s does, any other observer can
+## redraw without polling.
+signal health_changed
 
 ## Squared direction length under which we skip rotating (avoids look_at jitter).
 const FACING_EPSILON: float = 0.0001
+## Height above the monster's origin the health bar floats at — just clear of
+## the capsule's head (the capsule is 1.2 m tall centered at y=0.6, so its top
+## sits around y=1.2).
+const HEALTH_BAR_HEIGHT: float = 1.6
 
 var _data: Dictionary = {}
 var _combat_constants: Dictionary = {}
@@ -30,9 +39,20 @@ var _attack_range: float = 1.0
 var _seconds_between_attacks: float = 1.0
 ## Seconds until the next swing is allowed; 0 means ready.
 var _attack_cooldown: float = 0.0
+## Floating world-space bar above the monster's head (G4, issue #11). Built in
+## _ready, before [method setup] runs, so a red default full bar exists the
+## instant the monster is added to the tree.
+var _health_bar: HealthBar3D
 
 @onready var _agent: NavigationAgent3D = $NavigationAgent3D
 @onready var _body: MeshInstance3D = $Body
+
+
+func _ready() -> void:
+	_health_bar = HealthBar3D.new()
+	_health_bar.position = Vector3(0, HEALTH_BAR_HEIGHT, 0)
+	_health_bar.name = "HealthBar3D"
+	add_child(_health_bar)
 
 
 ## Injects everything this monster needs: its `monsters.json` entry, the `combat`
@@ -53,6 +73,7 @@ func setup(
 	_move_speed = float(data.get("move_speed", 0.0))
 	_attack_range = float(data.get("attack_range", 1.0))
 	_seconds_between_attacks = 1.0 / maxf(float(data.get("attack_speed", 1.0)), 0.01)
+	_update_health_bar()
 
 
 func is_dead() -> bool:
@@ -87,10 +108,26 @@ func take_hit(result: DamageResult) -> void:
 	_health.take_damage(result.amount)
 	CombatFx.spawn_damage_number(get_parent(), global_position + Vector3.UP * 2.2, result)
 	if _health.is_dead():
+		# Empty the bar before the corpse (and the bar, its child) is freed —
+		# "empties then hides" (G4 ticket) in the frame the kill lands.
+		_update_health_bar()
 		died.emit(self)
 		queue_free()
 	else:
 		CombatFx.flash(_body)
+		_update_health_bar()
+
+
+## Pushes the current health fraction to the floating bar and emits
+## [signal health_changed]. Monster max health never changes post-spawn (no
+## level system on this side), so reading `_health.max_health` here — rather
+## than caching a denominator elsewhere — is just consistency with [Player]'s
+## equivalent, not a correctness requirement.
+func _update_health_bar() -> void:
+	if _health_bar == null or _health == null:
+		return
+	_health_bar.set_fraction(float(_health.current) / float(_health.max_health))
+	health_changed.emit()
 
 
 func _physics_process(delta: float) -> void:
