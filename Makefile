@@ -8,7 +8,7 @@ GAME_DIR := game
 SERVER_DIR := server
 
 .PHONY: help check test test-game test-server run-server \
-        fmt-server vet-server lint-server validate-data tidy-server
+        fmt-server vet-server lint-server validate-data tidy-server sqlc-generate
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -47,6 +47,9 @@ lint-server: fmt-server vet-server ## gofmt check + go vet + golangci-lint
 
 tidy-server: ## Tidy and verify go.mod/go.sum
 	cd $(SERVER_DIR) && $(GO) mod tidy
+
+sqlc-generate: ## Regenerate internal/store/sqlcgen from db/migrations + db/queries
+	cd $(SERVER_DIR) && sqlc generate
 
 ## --- Shared data ----------------------------------------------------------
 

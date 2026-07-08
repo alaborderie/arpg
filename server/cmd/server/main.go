@@ -16,8 +16,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alaborderie/arpg/server/internal/auth"
 	"github.com/alaborderie/arpg/server/internal/config"
 	"github.com/alaborderie/arpg/server/internal/httpapi"
+	"github.com/alaborderie/arpg/server/internal/saves"
+	"github.com/alaborderie/arpg/server/internal/store"
 )
 
 func main() {
@@ -26,9 +29,23 @@ func main() {
 
 	cfg := config.Load()
 
+	st, err := store.Open(context.Background(), cfg.DBPath)
+	if err != nil {
+		logger.Error("open store failed", "err", err)
+		os.Exit(1)
+	}
+	defer func() {
+		if err := st.Close(); err != nil {
+			logger.Error("close store failed", "err", err)
+		}
+	}()
+
+	authSvc := auth.NewService(st.Queries)
+	saveSvc := saves.NewService(st.Queries)
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpapi.NewRouter(logger),
+		Handler:           httpapi.NewRouter(logger, authSvc, saveSvc),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

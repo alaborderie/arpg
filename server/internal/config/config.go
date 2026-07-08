@@ -11,12 +11,17 @@ import "os"
 type Config struct {
 	// Addr is the listen address, e.g. ":8080".
 	Addr string
+	// DBPath is the SQLite database file (or ":memory:"). Relative paths
+	// resolve against the process's working directory (server/ when run via
+	// `make run-server`).
+	DBPath string
 }
 
 // Load reads configuration from the environment, applying defaults.
 func Load() Config {
 	return Config{
-		Addr: getenv("ARPG_ADDR", ":8080"),
+		Addr:   getenv("ARPG_ADDR", ":8080"),
+		DBPath: getenv("ARPG_DB_PATH", "arpg.db"),
 	}
 }
 
